@@ -4,9 +4,10 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 dotenv.config();
-const nodemailer = require('nodemailer'); 
+const nodemailer = require('nodemailer');
 
 const User = require('../models/User');
+const auth = require('../middleware/auth');
 
 /**
  * Generate a 4-digit OTP.
@@ -78,7 +79,7 @@ router.post('/register', async (req, res) => {
 
     // Sign a JWT with user ID and role, valid for 1 hour
     const payload = { id: user._id, role: user.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' });
 
     // Return the token so client can use it for verify-otp
     res.status(201).json({
@@ -189,6 +190,22 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login Error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+
+
+// Route to check access token
+router.get('/check-token', auth, async (req, res) => {
+  try {
+    res.json({
+      message: 'Token is valid',
+      user: req.user, // Contains decoded user details (id, role)
+    });
+  } catch (error) {
+    console.error('Token Verification Error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
