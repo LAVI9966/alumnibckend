@@ -10,10 +10,11 @@ router.get("/users-stats", auth, admin, async (req, res) => {
   try {
     const totalAlumni = await User.countDocuments({ role: "alumni" });
     const totalUsers = await User.countDocuments({ role: "user" });
-
+    const totalEvents = await Event.find().count();
     res.json({
       totalAlumni,
       totalUsers,
+      totalEvents
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
