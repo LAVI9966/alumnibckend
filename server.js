@@ -16,6 +16,7 @@ const profileRoutes = require('./routes/profile');
 const contactRoutes = require('./routes/contact');
 const aboutRoutes = require('./routes/about');
 const chatRoutes = require('./routes/chat');
+const statsRoutes = require("./routes/stats");
 
 const app = express();
 const server = http.createServer(app);  // Create an HTTP server from Express
@@ -43,6 +44,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/about', aboutRoutes);
 app.use('/api/chat', chatRoutes);
+app.use("/api/stats", statsRoutes);
 
 // --- Socket.IO Real-Time Chat Setup ---
 io.on('connection', (socket) => {
