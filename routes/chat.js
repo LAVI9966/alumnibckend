@@ -20,6 +20,7 @@ router.post('/send', async (req, res) => {
 router.get('/messages/:user1Id/:user2Id', async (req, res) => {
   try {
     const { user1Id, user2Id } = req.params;
+    console.log(user1Id, user2Id)
     const messages = await Chat.find({
       $or: [
         { senderId: user1Id, receiverId: user2Id },
