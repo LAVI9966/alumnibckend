@@ -64,6 +64,44 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+router.put("/update", auth, async (req, res) => {
+  try {
+    const userId = req.user.id; // from decoded token
+    const { name, mobileNumber } = req.body;
+
+    // Find the user
+    let user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update fields if provided
+    if (name !== undefined) user.name = name;
+    if (mobileNumber !== undefined) user.mobileNumber = mobileNumber;
+
+    // ... add other fields as needed ...
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        mobileNumber: user.mobileNumber,
+        profilePicture: user.profilePicture,
+      },
+    });
+  } catch (err) {
+    console.error("Update Profile Error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+});
+
+
 
 module.exports = router;
 
