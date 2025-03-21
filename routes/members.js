@@ -101,12 +101,16 @@ router.put('/:id', auth, admin, async (req, res) => {
  */
 router.patch("/:id/verify", auth, admin, async (req, res) => {
   try {
+    const { status } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if (!["pending", "verified"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status value" });
+    }
+
     // Update the verification status
-    user.isVerified = true;
-    user.status = "verified";
+    user.status = status;
     await user.save();
 
     res.json({ message: "User verified successfully", user });
@@ -114,6 +118,7 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+
 /**
  * 5. Delete a member (Admin only)
  */
