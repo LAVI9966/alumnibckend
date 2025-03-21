@@ -21,4 +21,17 @@ router.post('/', async (req, res) => {
   }
 });
 
+
+// Get all contact form submissions
+router.get('/', async (req, res) => {
+  try {
+    const contacts = await Contact.find();
+    res.status(200).json(contacts);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
 module.exports = router;

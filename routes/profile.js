@@ -3,12 +3,12 @@ const router = express.Router();
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
-const path = require('path'); 
+const path = require('path');
 
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '..', 'uploads'); 
+    const uploadPath = path.join(__dirname, '..', 'uploads');
     cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
@@ -24,7 +24,7 @@ router.post('/upload-profile-picture', auth, upload.single('profilePicture'), as
   try {
     console.log("Headers:", req.headers);
     console.log("Received Request:", req.body);
-    console.log("File Details:", req.file); 
+    console.log("File Details:", req.file);
 
     if (!req.file) {
       console.error("Multer did not process the file. Check field name in Postman.");
@@ -35,7 +35,7 @@ router.post('/upload-profile-picture', auth, upload.single('profilePicture'), as
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Save file path
-    user.profilePicture = req.file.path; 
+    user.profilePicture = req.file.path;
     await user.save();
 
     res.json({
