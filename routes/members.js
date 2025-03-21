@@ -95,6 +95,26 @@ router.put('/:id', auth, admin, async (req, res) => {
 });
 
 /**
+ * PATCH /api/members/:id/verify
+ * Admin-only endpoint to verify a user.
+ * This sets user.isVerified to true and updates the status field to "verified".
+ */
+router.patch("/:id/verify", auth, admin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Update the verification status
+    user.isVerified = true;
+    user.status = "verified";
+    await user.save();
+
+    res.json({ message: "User verified successfully", user });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+/**
  * 5. Delete a member (Admin only)
  */
 router.delete('/:id', auth, admin, async (req, res) => {

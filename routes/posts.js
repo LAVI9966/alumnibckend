@@ -6,6 +6,7 @@ const auth = require("../middleware/auth");
 const admin = require("../middleware/admin");
 const multer = require("multer");
 const path = require("path");
+const adminVerify = require("../middleware/adminVerify");
 
 
 
@@ -24,7 +25,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // Create a new post (POST) with image upload
-router.post("/", auth, upload.single("image"), async (req, res) => {
+router.post("/", auth, adminVerify, upload.single("image"), async (req, res) => {
   try {
     const { content } = req.body;
     // If an image file is uploaded, get its path
@@ -91,7 +92,7 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-router.delete("/:id", auth, async (req, res) => {
+router.delete("/:id", auth, adminVerify, async (req, res) => {
   try {
     const postId = req.params.id;
 

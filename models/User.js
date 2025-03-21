@@ -3,16 +3,17 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
 const UserSchema = new mongoose.Schema({
-  collegeNo:{type: String, required: true},
+  collegeNo: { type: String, required: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  mobileNumber:{type:Number, require:true},
+  mobileNumber: { type: Number, require: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['user', 'alumni', 'admin'], default: 'user' },
+  role: { type: String, enum: ["user", "alumni", "admin"], default: "user" },
   profilePicture: { type: String },
-  isVerified: {type: Boolean,default: false},
-  otp: {type: String},
-  otpExpires: { type: Date},
+  isVerified: { type: Boolean, default: false },
+  status: { type: String, enum: ["pending", "verified"], default: "pending" },
+  otp: { type: String },
+  otpExpires: { type: Date },
 });
 
 // Hash the password before saving
