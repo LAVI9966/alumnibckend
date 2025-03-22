@@ -194,7 +194,7 @@ router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
   try {
     const updateData = { title, description, date };
     if (req.file) {
-      updateData.imageUrl = req.file.path;
+      updateData.imageUrl = req.file.filename;
     }
 
     const event = await Event.findByIdAndUpdate(req.params.id, updateData, {
