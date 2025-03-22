@@ -54,11 +54,11 @@ router.get("/", auth, async (req, res) => {
 router.post("/register", auth, adminVerify, async (req, res) => {
   try {
     // Support both 'eventIds' (array) and 'eventId' (single id) in the request body.
-    let  eventIds = req.body.eventIds;
+    let { eventIds } = req.body;
 
-    if (!eventIds && req.body.eventId) {
-      eventIds = [req.body.eventId];
-    }
+    // if (!eventIds && req.body.eventId) {
+    //   eventIds = [req.body.eventId];
+    // }
 
     // Validate eventIds
     if (!Array.isArray(eventIds) || eventIds.length === 0) {
