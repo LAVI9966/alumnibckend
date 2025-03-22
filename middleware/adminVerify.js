@@ -7,11 +7,11 @@ const adminVerify = async (req, res, next) => {
       return res.status(401).json({ message: "User not authenticated" });
     }
 
-    // Optionally re-fetch the user from the database to get the latest verification status
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    // // Optionally re-fetch the user from the database to get the latest verification status
+    // const user = await User.findById(req.user._id);
+    // if (!user) {
+    //   return res.status(404).json({ message: "User not found" });
+    // }
 
     // Check if the user is verified by admin
     if (user.status !== "verified") {

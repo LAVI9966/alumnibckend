@@ -53,13 +53,18 @@ router.get("/", auth, async (req, res) => {
 // 4) REGISTER FOR ONE OR MORE EVENTS (ONLY IF ADMIN-VERIFIED)
 router.post("/register", auth, adminVerify, async (req, res) => {
   try {
-    const { eventIds } = req.body;
+    // Support both 'eventIds' (array) and 'eventId' (single id) in the request body.
+    let  eventIds = req.body.eventIds;
+
+    if (!eventIds && req.body.eventId) {
+      eventIds = [req.body.eventId];
+    }
 
     // Validate eventIds
     if (!Array.isArray(eventIds) || eventIds.length === 0) {
       return res
         .status(400)
-        .json({ message: "Provide a non-empty array of eventIds." });
+        .json({ message: "Provide a valid eventId or a non-empty array of eventIds." });
     }
 
     const userId = req.user.id;
@@ -97,9 +102,7 @@ router.post("/register", auth, adminVerify, async (req, res) => {
     });
   } catch (error) {
     console.error("Error registering for events:", error);
-    return res
-      .status(500)
-      .json({ message: "Server error", error: error.message });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
