@@ -102,6 +102,7 @@ router.put('/:id', auth, admin, async (req, res) => {
 router.patch("/:id/verify", auth, admin, async (req, res) => {
   try {
     const { status } = req.body;
+    console.log(status,"gaurav")
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 

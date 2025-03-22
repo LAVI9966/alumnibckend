@@ -34,7 +34,7 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       createdBy: req.user.id,
     });
     await event.save();
-    res.status(201).json(event);
+    res.status(201).json({ message: "Event created successfully!"});
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
