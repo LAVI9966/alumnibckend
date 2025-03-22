@@ -30,7 +30,7 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       title,
       description,
       date,
-      imageUrl: req.file ? req.file.path : undefined,
+      imageUrl: req.file ? req.file.filename : undefined,
       createdBy: req.user.id,
     });
     await event.save();
@@ -194,7 +194,7 @@ router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
   try {
     const updateData = { title, description, date };
     if (req.file) {
-      updateData.imageUrl = req.file.path;
+      updateData.imageUrl = req.file.filename;
     }
 
     const event = await Event.findByIdAndUpdate(req.params.id, updateData, {
