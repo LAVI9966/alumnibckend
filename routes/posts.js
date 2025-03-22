@@ -92,6 +92,23 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// GET posts for the currently authenticated user
+router.get("/my-posts", auth, adminVerify, async (req, res) => {
+  try {
+    const posts = await Post.find({ user: req.user.id })
+      .populate("user", "name profilePicture")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      message: "User posts retrieved successfully",
+      posts,
+    });
+  } catch (error) {
+    console.error("Error retrieving user posts:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 // Update a post (PUT)
 router.put("/:id", auth, adminVerify, upload.single("image"), async (req, res) => {
   try {
