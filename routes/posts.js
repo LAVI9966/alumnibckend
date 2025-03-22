@@ -29,7 +29,7 @@ router.post("/", auth, adminVerify, upload.single("image"), async (req, res) => 
   try {
     const { content } = req.body;
     // If an image file is uploaded, get its path
-    const imageUrl = req.file ? req.file.path : undefined;
+    const imageUrl = req.file ? req.file.filename : undefined;
 
     // Create the post
     const newPost = new Post({
@@ -56,7 +56,7 @@ router.post('/admin', auth, admin, upload.array('images', 5), async (req, res) =
   try {
     const { content } = req.body;
     // If images are uploaded, get an array of file paths
-    const imagePaths = req.files ? req.files.map(file => file.path) : [];
+    const imagePaths = req.files ? req.files.map(file => file.filename) : [];
 
     // Create the admin post with multiple images
     const newPost = new Post({

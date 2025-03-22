@@ -30,7 +30,7 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       title,
       description,
       date,
-      imageUrl: req.file ? req.file.path : undefined,
+      imageUrl: req.file ? req.file.filename : undefined,
       createdBy: req.user.id,
     });
     await event.save();
