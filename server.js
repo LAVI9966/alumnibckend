@@ -26,7 +26,9 @@ const io = socketIO(server, {
   cors: { origin: '*' },
 });
 
-app.use(cors());
+app.use(cors({
+   origin: ['roba.org.in',"localhost:3000"]
+}));
 app.use(express.json());
 
 // Connect to MongoDB
