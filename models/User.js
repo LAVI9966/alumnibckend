@@ -14,6 +14,9 @@ const UserSchema = new mongoose.Schema({
   status: { type: String, enum: ["pending", "verified"], default: "pending" },
   otp: { type: String },
   otpExpires: { type: Date },
+
+  resetPasswordToken: { type: String }, 
+  resetPasswordExpires: { type: Date }, 
 });
 
 // Hash the password before saving

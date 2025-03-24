@@ -230,9 +230,8 @@ router.post("/forgot-password", async (req, res) => {
     await user.save();
 
     // Construct a reset link (adjust FRONTEND_URL in your .env as needed)
-    const resetLink = `${
-      process.env.FRONTEND_URL || "http://localhost:3000"
-    }/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.FRONTEND_URL || "http://localhost:3000"
+      }/reset-password?token=${resetToken}`;
 
     // Send reset instructions via email using nodemailer
     await transporter.sendMail({
