@@ -38,7 +38,7 @@ router.get('/messages/:user1Id/:user2Id', auth, adminVerify, async (req, res) =>
 
 
 
-// Get recent chat list with user details, last message and timestamp (WhatsApp-like)
+// Get recent chat list with user details, last message and timestamp 
 router.get('/recent-chats', auth, adminVerify, async (req, res) => {
   try {
     const userId = req.user.id;

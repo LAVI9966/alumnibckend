@@ -92,6 +92,56 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// GET posts for the currently authenticated user
+router.get("/my-posts", auth, adminVerify, async (req, res) => {
+  try {
+    const posts = await Post.find({ user: req.user.id })
+      .populate("user", "name profilePicture")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      message: "User posts retrieved successfully",
+      posts,
+    });
+  } catch (error) {
+    console.error("Error retrieving user posts:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// Update a post (PUT)
+router.put("/:id", auth, adminVerify, upload.single("image"), async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const { content } = req.body;
+    let updateData = {};
+    
+    // Update content if provided
+    if (content) {
+      updateData.content = content;
+    }
+    
+    // Update image if a new file is uploaded, store only the filename
+    if (req.file) {
+      updateData.imageUrl = req.file.filename;
+    }
+    
+    // Update the post and return the updated document
+    const updatedPost = await Post.findByIdAndUpdate(postId, updateData, { new: true });
+    if (!updatedPost) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+    
+    return res.status(200).json({
+      message: "Post updated successfully",
+      post: updatedPost,
+    });
+  } catch (error) {
+    console.error("Error updating post:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 router.delete("/:id", auth, adminVerify, async (req, res) => {
   try {
     const postId = req.params.id;
