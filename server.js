@@ -27,7 +27,7 @@ const io = socketIO(server, {
 });
 
 app.use(cors({
-   origin: ['roba.org.in',"localhost:3000"]
+   origin: ['roba.org.in',"http://localhost:3000"]
 }));
 app.use(express.json());
 
