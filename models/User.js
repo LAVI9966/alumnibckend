@@ -16,6 +16,10 @@ const UserSchema = new mongoose.Schema({
   otpExpires: { type: Date },
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
+  events: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Event"
+  }],
 });
 
 // Hash the password before saving

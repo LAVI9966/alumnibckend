@@ -5,7 +5,8 @@ const multer = require("multer");
 const path = require("path");
 
 const Event = require("../models/Event");
-const EventRegistration = require("../models/EventRegistration"); // NEW
+const User = require("../models/User"); // Added User model
+const EventRegistration = require("../models/EventRegistration");
 const auth = require("../middleware/auth");
 const admin = require("../middleware/admin");
 const adminVerify = require("../middleware/adminVerify");
@@ -22,7 +23,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// 2) CREATE A NEW EVENT (ADMIN ONLY)
+// 2) CREATE A NEW EVENT (ADMIN ONLY) - UPDATED
 router.post("/", auth, admin, upload.single("image"), async (req, res) => {
   const { title, description, date } = req.body;
   try {
@@ -33,8 +34,17 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       imageUrl: req.file ? req.file.filename : undefined,
       createdBy: req.user.id,
     });
+
+    // Save the event
     await event.save();
-    res.status(201).json({ message: "Event created successfully!"});
+
+    // Add this event to all users' events array
+    await User.updateMany(
+      {}, // Target all users
+      { $push: { events: event._id } }
+    );
+
+    res.status(201).json({ message: "Event created successfully and notified to all users" });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -50,15 +60,63 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// NEW - GET USER EVENTS (FOR NOTIFICATION PAGE)
+router.get("/user-events", auth, async (req, res) => {
+  try {
+    // Find the current user
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // If the user has no events array or it's empty
+    if (!user.events || user.events.length === 0) {
+      return res.json([]);
+    }
+
+    // Get all event details from user's events array
+    const events = await Event.find({
+      _id: { $in: user.events }
+    }).sort({ createdAt: -1 }); // Sort by creation date, newest first
+
+    res.json(events);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// NEW - DISMISS USER EVENT (REMOVE EVENT FROM USER'S LIST)
+router.delete("/user-events/:eventId", auth, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+
+    // Find the current user
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Remove the event from the user's events array
+    if (user.events) {
+      user.events = user.events.filter(id => id.toString() !== eventId);
+      await user.save();
+    }
+
+    res.json({ message: 'Event dismissed successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // 4) REGISTER FOR ONE OR MORE EVENTS (ONLY IF ADMIN-VERIFIED)
 router.post("/register", auth, adminVerify, async (req, res) => {
   try {
     // Support both 'eventIds' (array) and 'eventId' (single id) in the request body.
     let { eventIds } = req.body;
-
-    // if (!eventIds && req.body.eventId) {
-    //   eventIds = [req.body.eventId];
-    // }
 
     // Validate eventIds
     if (!Array.isArray(eventIds) || eventIds.length === 0) {
@@ -214,6 +272,13 @@ router.delete("/:id", auth, admin, async (req, res) => {
   try {
     const event = await Event.findByIdAndDelete(req.params.id);
     if (!event) return res.status(404).json({ message: "Event not found" });
+
+    // Also remove this event from all users' events arrays
+    await User.updateMany(
+      {},
+      { $pull: { events: req.params.id } }
+    );
+
     res.json({ message: "Event deleted" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
