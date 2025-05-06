@@ -1,7 +1,8 @@
-// routes/posts.js - Complete file with all features including working nested replies
+// routes/posts.js - Enhanced for true infinite nesting of replies
 const express = require("express");
 const router = express.Router();
 const Post = require("../models/Post");
+const User = require("../models/User"); // Add User model
 const auth = require("../middleware/auth");
 const admin = require("../middleware/admin");
 const multer = require("multer");
@@ -90,7 +91,15 @@ router.get("/", auth, async (req, res) => {
             path: "replies",
             populate: [
               { path: "user", select: "name profilePicture" },
-              { path: "likes", select: "name profilePicture" }
+              { path: "likes", select: "name profilePicture" },
+              // Add deeper population for nested replies
+              {
+                path: "replies",
+                populate: [
+                  { path: "user", select: "name profilePicture" },
+                  { path: "likes", select: "name profilePicture" }
+                ]
+              }
             ]
           }
         ]
@@ -104,10 +113,52 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// Recursive function to populate nested replies
+const populateRepliesRecursively = async (replies, depth = 0, maxDepth = 10) => {
+  if (!Array.isArray(replies) || replies.length === 0 || depth >= maxDepth) {
+    return;
+  }
+
+  for (let i = 0; i < replies.length; i++) {
+    // Populate user data if it's not already populated
+    if (replies[i].user && typeof replies[i].user !== 'object') {
+      try {
+        const user = await User.findById(replies[i].user).select('name profilePicture');
+        if (user) {
+          replies[i].user = user;
+        }
+      } catch (err) {
+        console.error(`Error populating user at depth ${depth}:`, err);
+      }
+    }
+
+    // Populate likes data if it's not already populated
+    if (replies[i].likes && replies[i].likes.length > 0) {
+      for (let j = 0; j < replies[i].likes.length; j++) {
+        if (typeof replies[i].likes[j] !== 'object') {
+          try {
+            const user = await User.findById(replies[i].likes[j]).select('name profilePicture');
+            if (user) {
+              replies[i].likes[j] = user;
+            }
+          } catch (err) {
+            console.error(`Error populating like at depth ${depth}:`, err);
+          }
+        }
+      }
+    }
+
+    // Recursively populate nested replies
+    if (replies[i].replies && replies[i].replies.length > 0) {
+      await populateRepliesRecursively(replies[i].replies, depth + 1, maxDepth);
+    }
+  }
+};
+
 // Get a single post by ID with deep population
 router.get("/:id", auth, async (req, res) => {
   try {
-    // Fetch the post with full population of all nested data
+    // Basic fetch with standard population
     const post = await Post.findById(req.params.id)
       .populate("user", "name profilePicture")
       .populate("likes", "name profilePicture")
@@ -143,29 +194,11 @@ router.get("/:id", auth, async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // This manual population handles nested replies since Mongoose populate doesn't handle deep nesting well
+    // Recursively populate all levels of nested replies
     if (post.comments && post.comments.length > 0) {
       for (const comment of post.comments) {
         if (comment.replies && comment.replies.length > 0) {
-          for (const reply of comment.replies) {
-            if (reply.replies && reply.replies.length > 0) {
-              // Find and populate user info for nested replies
-              for (let i = 0; i < reply.replies.length; i++) {
-                const nestedReply = reply.replies[i];
-                if (nestedReply.user) {
-                  try {
-                    const user = await mongoose.model('User').findById(nestedReply.user)
-                      .select('name profilePicture');
-                    if (user) {
-                      reply.replies[i].user = user;
-                    }
-                  } catch (err) {
-                    console.error(`Error populating nested reply user: ${err.message}`);
-                  }
-                }
-              }
-            }
-          }
+          await populateRepliesRecursively(comment.replies);
         }
       }
     }
@@ -431,267 +464,343 @@ router.delete("/:postId/comment/:commentId", auth, async (req, res) => {
   }
 });
 
-// Add a reply to a comment
-router.post("/:postId/comment/:commentId/reply", auth, async (req, res) => {
+// ENHANCED API FOR INFINITE REPLIES
+
+// Helper function to find a reply at any nesting level by its ID
+const findReplyById = (items, replyId, path = '', parentPath = '') => {
+  if (!items || !Array.isArray(items)) return null;
+
+  for (let i = 0; i < items.length; i++) {
+    const currentPath = parentPath ? `${parentPath}.replies.${i}` : `${i}`;
+
+    if (items[i]._id.toString() === replyId) {
+      return {
+        reply: items[i],
+        index: i,
+        path: currentPath
+      };
+    }
+
+    // Check nested replies
+    const result = findReplyById(items[i].replies, replyId, path, currentPath);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+};
+
+// Helper function to add a reply to a target at any nesting level
+const addReplyToTarget = (items, targetId, newReply) => {
+  if (!items || !Array.isArray(items)) return false;
+
+  for (let i = 0; i < items.length; i++) {
+    if (items[i]._id.toString() === targetId) {
+      // Initialize replies array if needed
+      if (!items[i].replies) {
+        items[i].replies = [];
+      }
+      // Add the reply
+      items[i].replies.push(newReply);
+      return true;
+    }
+
+    // Try adding to nested replies
+    if (addReplyToTarget(items[i].replies, targetId, newReply)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+// Generic Add Reply API route for any nesting level
+router.post("/:postId/reply/:targetId", auth, async (req, res) => {
   try {
     const { text } = req.body;
+    const { postId, targetId } = req.params;
 
     if (!text) {
       return res.status(400).json({ message: "Reply text is required" });
     }
 
-    const post = await Post.findById(req.params.postId);
-
+    const post = await Post.findById(postId);
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    const comment = post.comments.id(req.params.commentId);
-
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
-    }
-
-    const newReply = {
-      user: req.user.id,
-      text,
-      likes: [],
-      replies: [] // Initialize empty replies array for nested replies
-    };
-
-    comment.replies.push(newReply);
-    await post.save();
-
-    // Populate user data in the new reply
-    const populatedPost = await Post.findById(req.params.postId)
-      .populate({
-        path: "comments.replies.user",
-        select: "name profilePicture"
-      });
-
-    const updatedComment = populatedPost.comments.id(req.params.commentId);
-    const addedReply = updatedComment.replies[updatedComment.replies.length - 1];
-
-    return res.status(201).json({
-      message: "Reply added successfully",
-      reply: addedReply
-    });
-  } catch (error) {
-    console.error("Error adding reply:", error);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Like a reply
-router.post("/:postId/comment/:commentId/reply/:replyId/like", auth, async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.postId);
-
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    const comment = post.comments.id(req.params.commentId);
-
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
-    }
-
-    const reply = comment.replies.id(req.params.replyId);
-
-    if (!reply) {
-      return res.status(404).json({ message: "Reply not found" });
-    }
-
-    // Check if reply already liked by user
-    if (reply.likes.some(like => like.toString() === req.user.id)) {
-      // Unlike
-      reply.likes = reply.likes.filter(like => like.toString() !== req.user.id);
-    } else {
-      // Like
-      reply.likes.push(req.user.id);
-    }
-
-    await post.save();
-
-    return res.status(200).json({
-      message: reply.likes.some(like => like.toString() === req.user.id) ? "Reply liked" : "Reply unliked",
-      likes: reply.likes.length,
-      isLiked: reply.likes.some(like => like.toString() === req.user.id)
-    });
-  } catch (error) {
-    console.error("Error liking/unliking reply:", error);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Delete a reply
-router.delete("/:postId/comment/:commentId/reply/:replyId", auth, async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.postId);
-
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    const comment = post.comments.id(req.params.commentId);
-
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
-    }
-
-    const reply = comment.replies.id(req.params.replyId);
-
-    if (!reply) {
-      return res.status(404).json({ message: "Reply not found" });
-    }
-
-    // Check if user is authorized to delete reply (reply author, comment author, or post author)
-    if (reply.user.toString() !== req.user.id &&
-      comment.user.toString() !== req.user.id &&
-      post.user.toString() !== req.user.id) {
-      return res.status(401).json({ message: "Not authorized to delete this reply" });
-    }
-
-    // Remove the subdocument
-    comment.replies.pull({ _id: req.params.replyId });
-    await post.save();
-
-    return res.status(200).json({ message: "Reply deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting reply:", error);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Add a nested reply to a reply
-router.post("/:postId/comment/:commentId/reply/:replyId/reply", auth, async (req, res) => {
-  try {
-    const { text } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ message: "Reply text is required" });
-    }
-
-    const post = await Post.findById(req.params.postId);
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    const comment = post.comments.id(req.params.commentId);
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
-    }
-
-    const parentReply = comment.replies.id(req.params.replyId);
-    if (!parentReply) {
-      return res.status(404).json({ message: "Parent reply not found" });
-    }
-
-    // Initialize replies array if it doesn't exist
-    if (!parentReply.replies) {
-      parentReply.replies = [];
-    }
-
-    // Create new nested reply with explicit ObjectId
+    // Create a new reply object with MongoDB ObjectId
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
       user: req.user.id,
       text,
       likes: [],
+      replies: [],
       createdAt: new Date()
     };
 
-    // Add the new reply to the parent reply's replies array
-    parentReply.replies.push(newReply);
+    let targetFound = false;
 
-    // Save the post
+    // First check if targetId is a comment ID
+    const commentIndex = post.comments.findIndex(comment => comment._id.toString() === targetId);
+    if (commentIndex !== -1) {
+      // Add reply to this comment
+      post.comments[commentIndex].replies.push(newReply);
+      targetFound = true;
+    } else {
+      // Search for the target reply in all comments
+      for (const comment of post.comments) {
+        if (addReplyToTarget(comment.replies, targetId, newReply)) {
+          targetFound = true;
+          break;
+        }
+      }
+    }
+
+    if (!targetFound) {
+      return res.status(404).json({ message: "Target not found" });
+    }
+
+    // Save the post with the new reply
     await post.save();
 
-    // Populate user data in the new reply
-    const populatedPost = await Post.findById(req.params.postId)
-      .populate("user", "name profilePicture")
-      .populate({
-        path: "comments.replies.replies.user",
-        select: "name profilePicture"
-      });
+    // Fetch the updated post with user data populated
+    const updatedPost = await Post.findById(postId)
+      .populate("user", "name profilePicture");
 
-    const updatedComment = populatedPost.comments.id(req.params.commentId);
-    const updatedParentReply = updatedComment.replies.id(req.params.replyId);
+    // Populate the user data for all comments and replies
+    if (updatedPost.comments) {
+      for (const comment of updatedPost.comments) {
+        await populateRepliesRecursively(comment.replies);
+      }
+    }
 
-    // Get the newly added reply
-    const addedReply = updatedParentReply.replies[updatedParentReply.replies.length - 1];
+    // Find the newly added reply with populated user data
+    let populatedReply = null;
+
+    if (commentIndex !== -1) {
+      // If we added to a comment, get the last reply
+      const replies = updatedPost.comments[commentIndex].replies;
+      populatedReply = replies[replies.length - 1];
+    } else {
+      // Otherwise search through all replies
+      for (const comment of updatedPost.comments) {
+        // Function to search for a reply by ID
+        const findReplyById = (replies, id) => {
+          if (!replies || !Array.isArray(replies)) return null;
+
+          for (const reply of replies) {
+            if (reply._id.toString() === id.toString()) {
+              return reply;
+            }
+            const nestedResult = findReplyById(reply.replies, id);
+            if (nestedResult) return nestedResult;
+          }
+          return null;
+        };
+
+        const found = findReplyById(comment.replies, newReply._id);
+        if (found) {
+          populatedReply = found;
+          break;
+        }
+      }
+    }
 
     return res.status(201).json({
       message: "Reply added successfully",
-      reply: addedReply
+      reply: populatedReply || newReply  // Fall back to unpopulated version if not found
     });
   } catch (error) {
-    console.error("Error adding nested reply:", error);
+    console.error("Error adding reply:", error);
     return res.status(500).json({
       message: "Server error",
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 });
 
-// Delete a nested reply
-router.delete("/:postId/comment/:commentId/reply/:replyId/reply/:nestedReplyId", auth, async (req, res) => {
+// Like a reply at any nesting level
+router.post("/:postId/reply/:replyId/like", auth, async (req, res) => {
   try {
-    const post = await Post.findById(req.params.postId);
+    const { postId, replyId } = req.params;
+
+    const post = await Post.findById(postId);
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    const comment = post.comments.id(req.params.commentId);
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
+    let replyFound = false;
+    let isLiked = false;
+    let likesCount = 0;
+
+    // Function to toggle like on a reply at any nesting level
+    const toggleLike = (replies) => {
+      if (!replies || !Array.isArray(replies)) return false;
+
+      for (let i = 0; i < replies.length; i++) {
+        if (replies[i]._id.toString() === replyId) {
+          // Check if already liked
+          const likeIndex = replies[i].likes.findIndex(like => like.toString() === req.user.id);
+
+          if (likeIndex !== -1) {
+            // Unlike
+            replies[i].likes.splice(likeIndex, 1);
+            isLiked = false;
+          } else {
+            // Like
+            replies[i].likes.push(req.user.id);
+            isLiked = true;
+          }
+
+          likesCount = replies[i].likes.length;
+          return true;
+        }
+
+        // Check nested replies
+        if (toggleLike(replies[i].replies)) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    // Check all comments for the reply
+    for (const comment of post.comments) {
+      if (toggleLike(comment.replies)) {
+        replyFound = true;
+        break;
+      }
     }
 
-    const parentReply = comment.replies.id(req.params.replyId);
-    if (!parentReply) {
-      return res.status(404).json({ message: "Parent reply not found" });
+    if (!replyFound) {
+      return res.status(404).json({ message: "Reply not found" });
     }
 
-    // Check if replies array exists
-    if (!parentReply.replies || !Array.isArray(parentReply.replies)) {
-      return res.status(404).json({ message: "No nested replies found" });
+    // Save the post with the updated likes
+    await post.save();
+
+    return res.status(200).json({
+      message: isLiked ? "Reply liked" : "Reply unliked",
+      likes: likesCount,
+      isLiked: isLiked
+    });
+  } catch (error) {
+    console.error("Error liking/unliking reply:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+// Delete a reply at any nesting level
+router.delete("/:postId/reply/:replyId", auth, async (req, res) => {
+  try {
+    const { postId, replyId } = req.params;
+    const { path } = req.body; // Optional path parameter for precise targeting
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
     }
 
-    // Find the nested reply
-    const nestedReplyIndex = parentReply.replies.findIndex(
-      reply => reply._id.toString() === req.params.nestedReplyId
-    );
+    let replyDeleted = false;
 
-    if (nestedReplyIndex === -1) {
-      return res.status(404).json({ message: "Nested reply not found" });
+    // If path is provided, use it for precise targeting
+    if (path) {
+      const pathParts = path.split('.');
+      let current = post;
+      let parent = null;
+      let index = null;
+      let collection = null;
+
+      // Navigate to the parent object that contains the reply
+      for (let i = 0; i < pathParts.length - 2; i += 2) {
+        if (pathParts[i + 1] === 'replies') {
+          if (pathParts[i] === 'comments') {
+            // Special case for comments array
+            collection = current.comments;
+          } else {
+            const idx = parseInt(pathParts[i], 10);
+            current = current[idx];
+            collection = current.replies;
+          }
+        } else {
+          const idx = parseInt(pathParts[i], 10);
+          parent = current;
+          current = current[pathParts[i + 1]][idx];
+          collection = current;
+        }
+      }
+
+      // Get the final index and remove the item
+      const finalIndex = parseInt(pathParts[pathParts.length - 1], 10);
+
+      // Check if this user is authorized to delete this reply
+      if (collection[finalIndex].user.toString() !== req.user.id &&
+        post.user.toString() !== req.user.id) {
+        return res.status(403).json({ message: "Not authorized to delete this reply" });
+      }
+
+      collection.splice(finalIndex, 1);
+      replyDeleted = true;
+    } else {
+      // Function to find and remove a reply at any nesting level
+      const removeReply = (replies, parentReplies = null, parentIndex = null) => {
+        if (!replies || !Array.isArray(replies)) return false;
+
+        for (let i = 0; i < replies.length; i++) {
+          if (replies[i]._id.toString() === replyId) {
+            // Check authorization
+            if (replies[i].user.toString() !== req.user.id &&
+              post.user.toString() !== req.user.id) {
+              return 'unauthorized';
+            }
+
+            // Remove the reply
+            replies.splice(i, 1);
+            return true;
+          }
+
+          // Check nested replies
+          const result = removeReply(replies[i].replies, replies, i);
+          if (result === true || result === 'unauthorized') {
+            return result;
+          }
+        }
+
+        return false;
+      };
+
+      // Look for the reply in all comments
+      for (const comment of post.comments) {
+        const result = removeReply(comment.replies);
+
+        if (result === true) {
+          replyDeleted = true;
+          break;
+        } else if (result === 'unauthorized') {
+          return res.status(403).json({ message: "Not authorized to delete this reply" });
+        }
+      }
     }
 
-    // Check authorization - user must be creator of the reply or parent entities
-    const nestedReply = parentReply.replies[nestedReplyIndex];
-    const nestedReplyUser = nestedReply.user.toString();
-
-    if (nestedReplyUser !== req.user.id &&
-      parentReply.user.toString() !== req.user.id &&
-      comment.user.toString() !== req.user.id &&
-      post.user.toString() !== req.user.id) {
-      return res.status(401).json({ message: "Not authorized to delete this reply" });
+    if (!replyDeleted) {
+      return res.status(404).json({ message: "Reply not found" });
     }
 
-    // Remove the nested reply from the array
-    parentReply.replies.splice(nestedReplyIndex, 1);
-
-    // Save the post
+    // Save the post with the deleted reply
     await post.save();
 
     return res.status(200).json({ message: "Reply deleted successfully" });
   } catch (error) {
-    console.error("Error deleting nested reply:", error);
+    console.error("Error deleting reply:", error);
     return res.status(500).json({
       message: "Server error",
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 });
