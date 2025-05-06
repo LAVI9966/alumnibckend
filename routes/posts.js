@@ -114,7 +114,7 @@ router.get("/", auth, async (req, res) => {
 });
 
 // Recursive function to populate nested replies
-const populateRepliesRecursively = async (replies, depth = 0, maxDepth = 10) => {
+const populateRepliesRecursively = async (replies, depth = 0, maxDepth = 20) => {
   if (!Array.isArray(replies) || replies.length === 0 || depth >= maxDepth) {
     return;
   }
@@ -184,6 +184,32 @@ router.get("/:id", auth, async (req, res) => {
               {
                 path: "likes",
                 select: "name profilePicture"
+              },
+              {
+                path: "replies",
+                populate: [
+                  {
+                    path: "user",
+                    select: "name profilePicture"
+                  },
+                  {
+                    path: "likes",
+                    select: "name profilePicture"
+                  },
+                  {
+                    path: "replies",
+                    populate: [
+                      {
+                        path: "user",
+                        select: "name profilePicture"
+                      },
+                      {
+                        path: "likes",
+                        select: "name profilePicture"
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }
@@ -194,14 +220,8 @@ router.get("/:id", auth, async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Recursively populate all levels of nested replies
-    if (post.comments && post.comments.length > 0) {
-      for (const comment of post.comments) {
-        if (comment.replies && comment.replies.length > 0) {
-          await populateRepliesRecursively(comment.replies);
-        }
-      }
-    }
+    // Use the new populateUserData method to ensure all user data is populated
+    await post.populateUserData();
 
     return res.status(200).json(post);
   } catch (error) {
@@ -566,15 +586,8 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
     await post.save();
 
     // Fetch the updated post with user data populated
-    const updatedPost = await Post.findById(postId)
-      .populate("user", "name profilePicture");
-
-    // Populate the user data for all comments and replies
-    if (updatedPost.comments) {
-      for (const comment of updatedPost.comments) {
-        await populateRepliesRecursively(comment.replies);
-      }
-    }
+    const updatedPost = await Post.findById(postId);
+    await updatedPost.populateUserData();
 
     // Find the newly added reply with populated user data
     let populatedReply = null;
@@ -586,7 +599,6 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
     } else {
       // Otherwise search through all replies
       for (const comment of updatedPost.comments) {
-        // Function to search for a reply by ID
         const findReplyById = (replies, id) => {
           if (!replies || !Array.isArray(replies)) return null;
 
@@ -696,96 +708,161 @@ router.post("/:postId/reply/:replyId/like", auth, async (req, res) => {
   }
 });
 
-// Delete a reply at any nesting level
-router.delete("/:postId/reply/:replyId", auth, async (req, res) => {
+// Helper function to find and delete a reply at any nesting level
+const findAndDeleteReply = (replies, replyId, path) => {
+  for (let i = 0; i < replies.length; i++) {
+    if (replies[i]._id.toString() === replyId) {
+      replies.splice(i, 1);
+      return true;
+    }
+    if (replies[i].replies && replies[i].replies.length > 0) {
+      if (findAndDeleteReply(replies[i].replies, replyId, path)) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+// Delete a reply
+router.delete("/posts/:postId/replies/:replyId", async (req, res) => {
   try {
     const { postId, replyId } = req.params;
-    const { path } = req.body; // Optional path parameter for precise targeting
+    const { path, userId } = req.body;
+
+    if (!path || !userId) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
 
     const post = await Post.findById(postId);
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    let replyDeleted = false;
+    // Find the comment that contains the reply
+    const comment = post.comments.id(path[0]);
+    if (!comment) {
+      return res.status(404).json({ message: "Comment not found" });
+    }
 
-    // If path is provided, use it for precise targeting
-    if (path) {
-      const pathParts = path.split('.');
-      let current = post;
-      let parent = null;
-      let index = null;
-      let collection = null;
-
-      // Navigate to the parent object that contains the reply
-      for (let i = 0; i < pathParts.length - 2; i += 2) {
-        if (pathParts[i + 1] === 'replies') {
-          if (pathParts[i] === 'comments') {
-            // Special case for comments array
-            collection = current.comments;
-          } else {
-            const idx = parseInt(pathParts[i], 10);
-            current = current[idx];
-            collection = current.replies;
-          }
-        } else {
-          const idx = parseInt(pathParts[i], 10);
-          parent = current;
-          current = current[pathParts[i + 1]][idx];
-          collection = current;
-        }
+    // If it's a direct reply to the comment
+    if (path.length === 1) {
+      const replyIndex = comment.replies.findIndex(
+        (r) => r._id.toString() === replyId
+      );
+      if (replyIndex === -1) {
+        return res.status(404).json({ message: "Reply not found" });
       }
 
-      // Get the final index and remove the item
-      const finalIndex = parseInt(pathParts[pathParts.length - 1], 10);
-
-      // Check if this user is authorized to delete this reply
-      if (collection[finalIndex].user.toString() !== req.user.id &&
-        post.user.toString() !== req.user.id) {
+      // Check if user is authorized to delete
+      if (
+        comment.replies[replyIndex].user.toString() !== userId &&
+        post.user.toString() !== userId
+      ) {
         return res.status(403).json({ message: "Not authorized to delete this reply" });
       }
 
-      collection.splice(finalIndex, 1);
-      replyDeleted = true;
+      comment.replies.splice(replyIndex, 1);
     } else {
-      // Function to find and remove a reply at any nesting level
-      const removeReply = (replies, parentReplies = null, parentIndex = null) => {
-        if (!replies || !Array.isArray(replies)) return false;
+      // For nested replies, use the recursive function
+      const success = findAndDeleteReply(comment.replies, replyId, path);
+      if (!success) {
+        return res.status(404).json({ message: "Reply not found" });
+      }
+    }
 
-        for (let i = 0; i < replies.length; i++) {
-          if (replies[i]._id.toString() === replyId) {
-            // Check authorization
-            if (replies[i].user.toString() !== req.user.id &&
-              post.user.toString() !== req.user.id) {
-              return 'unauthorized';
-            }
+    await post.save();
 
-            // Remove the reply
-            replies.splice(i, 1);
-            return true;
-          }
+    // Fetch the updated post with populated user data
+    const updatedPost = await Post.findById(postId)
+      .populate("user", "name profilePicture")
+      .populate({
+        path: "comments.user",
+        select: "name profilePicture",
+      })
+      .populate({
+        path: "comments.replies.user",
+        select: "name profilePicture",
+      })
+      .populate({
+        path: "comments.replies.replies",
+        populate: {
+          path: "user",
+          select: "name profilePicture",
+        },
+      });
 
-          // Check nested replies
-          const result = removeReply(replies[i].replies, replies, i);
-          if (result === true || result === 'unauthorized') {
-            return result;
-          }
-        }
+    res.json(updatedPost);
+  } catch (error) {
+    console.error("Error deleting reply:", error);
+    res.status(500).json({ message: "Error deleting reply", error: error.message });
+  }
+});
+// Enhanced recursive reply deletion for posts.js route file
 
-        return false;
-      };
+// Add this improved route to your posts.js file
 
-      // Look for the reply in all comments
-      for (const comment of post.comments) {
-        const result = removeReply(comment.replies);
+// Helper function to find and delete a reply at any nesting level
+const findAndDeleteReplyRecursive = (items, replyId, userId, postUserId) => {
+  if (!items || !Array.isArray(items)) return false;
 
+  for (let i = 0; i < items.length; i++) {
+    if (items[i]._id.toString() === replyId) {
+      // Check if the user is authorized to delete this reply
+      if (items[i].user.toString() === userId || postUserId === userId) {
+        // Remove the reply
+        items.splice(i, 1);
+        return true;
+      } else {
+        return { error: "Not authorized to delete this reply" };
+      }
+    }
+
+    // Recursively check nested replies
+    if (items[i].replies && items[i].replies.length > 0) {
+      const result = findAndDeleteReplyRecursive(items[i].replies, replyId, userId, postUserId);
+      if (result === true || result.error) {
+        return result;
+      }
+    }
+  }
+
+  return false;
+};
+
+// Improved delete reply route that handles any nesting level
+router.delete("/:postId/reply/:replyId", auth, async (req, res) => {
+  try {
+    const { postId, replyId } = req.params;
+    const userId = req.user.id;
+
+    console.log(`Deleting reply: ${replyId} from post: ${postId} by user: ${userId}`);
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    // First check if the replyId is directly in any comment's replies
+    let replyDeleted = false;
+    let authError = null;
+
+    // Check in each comment's replies
+    for (const comment of post.comments) {
+      if (comment.replies) {
+        const result = findAndDeleteReplyRecursive(comment.replies, replyId, userId, post.user.toString());
         if (result === true) {
           replyDeleted = true;
           break;
-        } else if (result === 'unauthorized') {
-          return res.status(403).json({ message: "Not authorized to delete this reply" });
+        } else if (result && result.error) {
+          authError = result.error;
+          break;
         }
       }
+    }
+
+    if (authError) {
+      return res.status(403).json({ message: authError });
     }
 
     if (!replyDeleted) {
@@ -795,14 +872,17 @@ router.delete("/:postId/reply/:replyId", auth, async (req, res) => {
     // Save the post with the deleted reply
     await post.save();
 
-    return res.status(200).json({ message: "Reply deleted successfully" });
+    return res.status(200).json({
+      message: "Reply deleted successfully",
+      success: true
+    });
   } catch (error) {
     console.error("Error deleting reply:", error);
     return res.status(500).json({
       message: "Server error",
-      error: error.message
+      error: error.message,
+      success: false
     });
   }
 });
-
 module.exports = router;
