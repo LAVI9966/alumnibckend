@@ -159,7 +159,7 @@ router.post('/login', async (req, res) => {
     // Check if user exists
     let user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid Credentials' });
+      return res.status(400).json({ message: 'Email is not registered. Please register first.' });
     }
 
     // Check if verified
@@ -195,9 +195,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-
-
-
 // Route to check access token
 router.get('/check-token', auth, async (req, res) => {
   try {
@@ -217,7 +214,7 @@ router.post("/forgot-password", async (req, res) => {
     // Check if a user with the provided email exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "Email is not registered. Please register first." });
     }
 
     // Generate a reset token and set its expiry (1 hour from now)
@@ -261,7 +258,7 @@ router.post("/reset-password", async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "Invalid or expired token." });
     }
-   
+
     // Set the new password (the pre-save hook will handle hashing)
     user.password = newPassword;
 
