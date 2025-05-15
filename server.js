@@ -26,9 +26,16 @@ const io = socketIO(server, {
   cors: { origin: '*' },
 });
 
-app.use(cors({
-   origin: ['roba.org.in',"http://localhost:3000"]
-}));
+const corsOptions = {
+  origin: ['https://alumnifrontend-wheat.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight
+
 app.use(express.json());
 
 // Connect to MongoDB
