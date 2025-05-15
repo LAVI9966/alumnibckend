@@ -307,71 +307,104 @@ router.get("/my-posts", auth, adminVerify, async (req, res) => {
   }
 });
 
-// Update a post (PUT) with multiple image support - increased limit to 30
-router.put("/:id", auth, adminVerify, upload.array("images", 30), async (req, res) => {
+// Update a post (PUT) with image deletion support
+router.put("/:id", auth, upload.array("images", 30), async (req, res) => {
   try {
     const postId = req.params.id;
-    const { content } = req.body;
-    let updateData = {};
+    const { content, imagesToKeep } = req.body;
 
-    // Find the original post for validation
+    console.log("UPDATE REQUEST:", {
+      postId,
+      userId: req.user.id,
+      hasContent: !!content,
+      hasFiles: !!(req.files && req.files.length),
+      imagesToKeep: imagesToKeep
+    });
+
+    // Find the original post
     const originalPost = await Post.findById(postId);
     if (!originalPost) {
+      console.log("Post not found:", postId);
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Improved authorization check handling both ObjectId and populated user objects
-    const postUserId = typeof originalPost.user === 'object' && originalPost.user !== null
+    // Extract user ID properly regardless of whether it's populated or not
+    const postUserId = originalPost.user && originalPost.user._id
       ? originalPost.user._id.toString()
       : originalPost.user.toString();
 
-    // Debug logging (optional - can be removed after fixing)
-    console.log("Post user ID:", postUserId);
-    console.log("Authenticated user ID:", req.user.id);
+    console.log("Auth check:", {
+      postUserId,
+      requestUserId: req.user.id,
+      isMatch: postUserId === req.user.id
+    });
 
-    // More robust comparison with the authenticated user ID
+    // Proper authorization check
     if (postUserId !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to update this post" });
     }
 
-    // Update content if provided
-    if (content) {
+    // Build update data object
+    const updateData = {};
+
+    // Always update content if provided
+    if (content !== undefined) {
       updateData.content = content;
     }
 
-    // Update images if new files are uploaded
-    if (req.files && req.files.length > 0) {
-      updateData.images = req.files.map(file => file.path);
-      // Remove imageUrl field if it exists (for backward compatibility)
-      updateData.imageUrl = undefined;
-    }
-    // Note: If no new images are uploaded, we don't modify the existing images array
-
-    // Update the post and return the updated document
-    const updatedPost = await Post.findByIdAndUpdate(postId, updateData, { new: true });
-
-    return res.status(200).json({
-      message: "Post updated successfully",
-      post: updatedPost,
-    });
-  } catch (error) {
-    console.error("Error updating post:", error);
-
-    // Handle multer errors similar to the POST route
-    if (error instanceof multer.MulterError) {
-      if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ message: "File too large. Maximum size is 10MB." });
-      } else if (error.code === 'LIMIT_FILE_COUNT') {
-        return res.status(400).json({ message: "Too many files. Maximum is 30 images." });
-      } else if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-        return res.status(400).json({ message: "Unexpected field name. Use 'images' for uploading files." });
+    // Handle images - now supporting partial updates
+    // Parse the imagesToKeep JSON string if it exists
+    let imagesToKeepArray = [];
+    if (imagesToKeep) {
+      try {
+        imagesToKeepArray = JSON.parse(imagesToKeep);
+        console.log("Images to keep:", imagesToKeepArray);
+      } catch (e) {
+        console.error("Error parsing imagesToKeep:", e);
       }
     }
 
-    return res.status(500).json({ message: "Server error", error: error.message });
+    if (req.files && req.files.length > 0) {
+      // If new files uploaded, combine with kept images
+      updateData.images = [
+        ...imagesToKeepArray,
+        ...req.files.map(file => file.path)
+      ];
+      console.log("Updating with combined images:", updateData.images.length);
+    } else if (imagesToKeep) {
+      // If only keeping some existing images without adding new ones
+      updateData.images = imagesToKeepArray;
+      console.log("Updating with filtered images:", updateData.images.length);
+    }
+
+    // Clear imageUrl if we're using images array
+    if (updateData.images && originalPost.imageUrl) {
+      updateData.imageUrl = undefined;
+    }
+
+    console.log("Update data:", updateData);
+
+    // Update post with new data
+    const updatedPost = await Post.findByIdAndUpdate(
+      postId,
+      updateData,
+      { new: true }
+    );
+
+    console.log("Post updated successfully");
+
+    return res.status(200).json({
+      message: "Post updated successfully",
+      post: updatedPost
+    });
+  } catch (error) {
+    console.error("Error updating post:", error);
+    return res.status(500).json({
+      message: "Server error during update",
+      error: error.message
+    });
   }
 });
-
 
 // Delete a post
 router.delete("/:id", auth, adminVerify, async (req, res) => {
