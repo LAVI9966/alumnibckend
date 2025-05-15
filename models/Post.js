@@ -1,4 +1,4 @@
-// models/Post.js - Recursive Schema for Infinite Nested Replies
+// models/Post.js - Enhanced for multiple image support
 const mongoose = require("mongoose");
 
 // Create a recursive schema that allows infinite nesting of replies
@@ -49,7 +49,7 @@ const CommentSchema = new mongoose.Schema({
   }
 }, { _id: true }); // Ensure _id is always generated
 
-// Post Schema
+// Post Schema - Enhanced for multiple images
 const PostSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -60,11 +60,20 @@ const PostSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  // Keep imageUrl for backward compatibility but it's being phased out
   imageUrl: {
     type: String,
   },
+  // Enhanced images array with improved validation
   images: {
     type: [String],
+    validate: {
+      validator: function (v) {
+        // Validation to ensure no more than 30 images
+        return Array.isArray(v) && v.length <= 30;
+      },
+      message: 'A post cannot have more than 30 images'
+    }
   },
   likes: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -79,7 +88,10 @@ const PostSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   }
-}, { _id: true }); // Ensure _id is always generated
+}, {
+  _id: true,
+  timestamps: true // Add timestamps for created/updated tracking
+});
 
 // Middleware for populating user data when fetching a post
 PostSchema.pre('findOne', function (next) {

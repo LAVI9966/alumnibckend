@@ -14,17 +14,44 @@ const mongoose = require("mongoose");
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadPath = path.join(__dirname, "..", "uploads");
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
     cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname);
+    // Create a more unique filename with original extension
+    const fileExt = path.extname(file.originalname);
+    const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${fileExt}`;
+    cb(null, fileName);
   },
 });
 
-const upload = multer({ storage });
 
-// Create a new post (POST) with multiple image upload
-router.post("/", auth, adminVerify, upload.array("images", 5), async (req, res) => {
+// File filter to ensure only images are uploaded
+const fileFilter = (req, file, cb) => {
+  // Accept only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
+
+// Configure multer with limits
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 10MB max file size
+    files: 30 // Allow up to 30 images
+  }
+});
+
+
+// Create a new post (POST) with multiple image upload - increased limit to 30
+router.post("/", auth, adminVerify, upload.array("images", 30), async (req, res) => {
   try {
     const { content } = req.body;
 
@@ -33,15 +60,11 @@ router.post("/", auth, adminVerify, upload.array("images", 5), async (req, res) 
       ? req.files.map(file => file.path)
       : undefined;
 
-    // Backwards compatibility for single image upload
-    const imageUrl = req.file ? req.file.path : undefined;
-
-    // Create the post with either multiple images or a single image
+    // Create the post with either multiple images
     const newPost = new Post({
       user: req.user.id,
       content,
-      ...(images ? { images } : {}),
-      ...(imageUrl ? { imageUrl } : {})
+      ...(images ? { images } : {})
     });
 
     await newPost.save();
@@ -52,7 +75,19 @@ router.post("/", auth, adminVerify, upload.array("images", 5), async (req, res) 
     });
   } catch (error) {
     console.error("Error creating post:", error);
-    return res.status(500).json({ message: "Server error" });
+
+    // Provide more detailed error message for client
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: "File too large. Maximum size is 10MB." });
+      } else if (error.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({ message: "Too many files. Maximum is 30 images." });
+      } else if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({ message: "Unexpected field name. Use 'images' for uploading files." });
+      }
+    }
+
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
@@ -272,12 +307,23 @@ router.get("/my-posts", auth, adminVerify, async (req, res) => {
   }
 });
 
-// Update a post (PUT) with multiple image support
-router.put("/:id", auth, adminVerify, upload.array("images", 5), async (req, res) => {
+// Update a post (PUT) with multiple image support - increased limit to 30
+router.put("/:id", auth, adminVerify, upload.array("images", 30), async (req, res) => {
   try {
     const postId = req.params.id;
     const { content } = req.body;
     let updateData = {};
+
+    // Find the original post for validation
+    const originalPost = await Post.findById(postId);
+    if (!originalPost) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    // Check if user is authorized to update this post
+    if (originalPost.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Not authorized to update this post" });
+    }
 
     // Update content if provided
     if (content) {
@@ -287,20 +333,12 @@ router.put("/:id", auth, adminVerify, upload.array("images", 5), async (req, res
     // Update images if new files are uploaded
     if (req.files && req.files.length > 0) {
       updateData.images = req.files.map(file => file.path);
-      // Clear the single imageUrl field if using the new multiple images
+      // Remove imageUrl field if it exists (for backward compatibility)
       updateData.imageUrl = undefined;
-    }
-
-    // Backward compatibility: update single image if that field is used
-    if (req.file) {
-      updateData.imageUrl = req.file.path;
     }
 
     // Update the post and return the updated document
     const updatedPost = await Post.findByIdAndUpdate(postId, updateData, { new: true });
-    if (!updatedPost) {
-      return res.status(404).json({ message: "Post not found" });
-    }
 
     return res.status(200).json({
       message: "Post updated successfully",
@@ -308,9 +346,22 @@ router.put("/:id", auth, adminVerify, upload.array("images", 5), async (req, res
     });
   } catch (error) {
     console.error("Error updating post:", error);
+
+    // Handle multer errors similar to the POST route
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: "File too large. Maximum size is 10MB." });
+      } else if (error.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({ message: "Too many files. Maximum is 30 images." });
+      } else if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({ message: "Unexpected field name. Use 'images' for uploading files." });
+      }
+    }
+
     return res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+
 
 // Delete a post
 router.delete("/:id", auth, adminVerify, async (req, res) => {
