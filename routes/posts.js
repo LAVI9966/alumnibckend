@@ -23,18 +23,25 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Create a new post (POST) with image upload
-router.post("/", auth, adminVerify, upload.single("image"), async (req, res) => {
+// Create a new post (POST) with multiple image upload
+router.post("/", auth, adminVerify, upload.array("images", 5), async (req, res) => {
   try {
     const { content } = req.body;
-    // If an image file is uploaded, get its path
+
+    // Check if files were uploaded
+    const images = req.files && req.files.length > 0
+      ? req.files.map(file => file.path)
+      : undefined;
+
+    // Backwards compatibility for single image upload
     const imageUrl = req.file ? req.file.path : undefined;
 
-    // Create the post
+    // Create the post with either multiple images or a single image
     const newPost = new Post({
-      user: req.user.id, // user ID from the auth middleware
+      user: req.user.id,
       content,
-      imageUrl,
+      ...(images ? { images } : {}),
+      ...(imageUrl ? { imageUrl } : {})
     });
 
     await newPost.save();
@@ -265,8 +272,8 @@ router.get("/my-posts", auth, adminVerify, async (req, res) => {
   }
 });
 
-// Update a post (PUT)
-router.put("/:id", auth, adminVerify, upload.single("image"), async (req, res) => {
+// Update a post (PUT) with multiple image support
+router.put("/:id", auth, adminVerify, upload.array("images", 5), async (req, res) => {
   try {
     const postId = req.params.id;
     const { content } = req.body;
@@ -277,7 +284,14 @@ router.put("/:id", auth, adminVerify, upload.single("image"), async (req, res) =
       updateData.content = content;
     }
 
-    // Update image if a new file is uploaded
+    // Update images if new files are uploaded
+    if (req.files && req.files.length > 0) {
+      updateData.images = req.files.map(file => file.path);
+      // Clear the single imageUrl field if using the new multiple images
+      updateData.imageUrl = undefined;
+    }
+
+    // Backward compatibility: update single image if that field is used
     if (req.file) {
       updateData.imageUrl = req.file.path;
     }
