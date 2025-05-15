@@ -320,8 +320,17 @@ router.put("/:id", auth, adminVerify, upload.array("images", 30), async (req, re
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Check if user is authorized to update this post
-    if (originalPost.user.toString() !== req.user.id) {
+    // Improved authorization check handling both ObjectId and populated user objects
+    const postUserId = typeof originalPost.user === 'object' && originalPost.user !== null
+      ? originalPost.user._id.toString()
+      : originalPost.user.toString();
+
+    // Debug logging (optional - can be removed after fixing)
+    console.log("Post user ID:", postUserId);
+    console.log("Authenticated user ID:", req.user.id);
+
+    // More robust comparison with the authenticated user ID
+    if (postUserId !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to update this post" });
     }
 
@@ -336,6 +345,7 @@ router.put("/:id", auth, adminVerify, upload.array("images", 30), async (req, re
       // Remove imageUrl field if it exists (for backward compatibility)
       updateData.imageUrl = undefined;
     }
+    // Note: If no new images are uploaded, we don't modify the existing images array
 
     // Update the post and return the updated document
     const updatedPost = await Post.findByIdAndUpdate(postId, updateData, { new: true });
