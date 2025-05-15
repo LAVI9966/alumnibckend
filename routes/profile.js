@@ -4,17 +4,24 @@ const multer = require('multer');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const path = require('path');
+const fs = require('fs');
+
+// Make sure uploads directory exists
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '..', 'uploads');
-    cb(null, uploadPath);
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
-    // Use a unique filename with original extension
+    // Create a clean filename without spaces and special characters
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E6);
     const fileExt = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1E9)}${fileExt}`);
+    cb(null, uniqueSuffix + fileExt);
   },
 });
 
@@ -47,13 +54,20 @@ router.post('/upload-profile-picture', auth, upload.single('profilePicture'), as
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Save file path
-    user.profilePicture = req.file.path;
+    // Store only the filename, not the full path
+    const filename = req.file.filename;
+    user.profilePicture = filename;
     await user.save();
 
+    console.log('Profile picture uploaded:', filename);
+
+    // Return detailed information about the file
     res.json({
       message: 'Profile picture uploaded successfully',
       profilePicture: user.profilePicture,
+      filename: filename,
+      path: req.file.path,
+      fullUrl: `${process.env.NEXT_PUBLIC_URL}/uploads/${filename}`
     });
   } catch (err) {
     console.error("Upload Error:", err);
@@ -73,6 +87,14 @@ router.get('/', auth, async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // If user has a profile picture, ensure it's just the filename
+    if (user.profilePicture) {
+      // If it's a full path, extract just the filename
+      if (user.profilePicture.includes('\\') || user.profilePicture.includes('/')) {
+        user.profilePicture = path.basename(user.profilePicture);
+      }
     }
 
     return res.status(200).json({ user });
