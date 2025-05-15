@@ -27,7 +27,7 @@ const io = socketIO(server, {
 });
 
 app.use(cors({
-   origin: ['roba.org.in',"http://localhost:3000"]
+   origin: ['https://alumnifrontend-wheat.vercel.app',"http://localhost:3000"]
 }));
 app.use(express.json());
 
