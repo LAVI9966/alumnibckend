@@ -3,10 +3,9 @@
     "version": "1.0.0",
     "main": "server.js",
     "scripts": {
-  "start": "node server.js",
-  "build": "npm rebuild bcrypt"
-},
-
+        "start": "node server.js",
+        "build": "npm rebuild bcrypt"
+    },
     "dependencies": {
         "bcrypt": "^5.0.1",
         "body-parser": "^1.19.0",

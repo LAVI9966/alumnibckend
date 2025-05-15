@@ -9,7 +9,7 @@ const multer = require("multer");
 const path = require("path");
 const adminVerify = require("../middleware/adminVerify");
 const mongoose = require("mongoose");
-
+const fs = require("fs");
 // Configure multer storage for post images
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
