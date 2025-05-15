@@ -1,4 +1,3 @@
-// models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
@@ -6,7 +5,8 @@ const UserSchema = new mongoose.Schema({
   collegeNo: { type: String, required: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  mobileNumber: { type: Number, require: true },
+  countryCode: { type: String, default: "+91" }, // New field for country code
+  mobileNumber: { type: String, required: true }, // Changed to String for better handling
   password: { type: String, required: true },
   role: { type: String, enum: ["user", "alumni", "admin"], default: "user" },
   profilePicture: { type: String },

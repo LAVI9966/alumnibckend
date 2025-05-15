@@ -12,27 +12,43 @@ const storage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname);
+    // Use a unique filename with original extension
+    const fileExt = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1E9)}${fileExt}`);
   },
 });
 
-const upload = multer({ storage });
+// File filter to accept only image files
+const fileFilter = (req, file, cb) => {
+  // Accept only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
 
+// Set up multer upload with size limits
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max file size
+  },
+  fileFilter,
+});
 
 // POST /api/profile/upload-profile-picture
 router.post('/upload-profile-picture', auth, upload.single('profilePicture'), async (req, res) => {
   try {
-
     if (!req.file) {
-      console.error("Multer did not process the file. Check field name in Postman.");
-      return res.status(400).json({ message: "No file uploaded" });
+      return res.status(400).json({ message: "No file uploaded or file type not supported" });
     }
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Save file path
-    user.profilePicture = req.file.filename;
+    user.profilePicture = req.file.path;
     await user.save();
 
     res.json({
@@ -41,19 +57,24 @@ router.post('/upload-profile-picture', auth, upload.single('profilePicture'), as
     });
   } catch (err) {
     console.error("Upload Error:", err);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File size should be less than 5MB' });
+    }
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
-//get all profiles GET /api/profile/
+// GET /api/profile/ - Get user profile
 router.get('/', auth, async (req, res) => {
   try {
     // Use req.user.id from the decoded token (auth middleware)
     const userId = req.user.id;
     const user = await User.findById(userId).select('-password -otp -otpExpires');
+
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
     }
+
     return res.status(200).json({ user });
   } catch (error) {
     console.error('Get Profile Error:', error);
@@ -61,10 +82,11 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// PUT /api/profile/update - Update user profile
 router.put("/update", auth, async (req, res) => {
   try {
     const userId = req.user.id; // from decoded token
-    const { name, mobileNumber } = req.body;
+    const { name, mobileNumber, countryCode } = req.body;
 
     // Find the user
     let user = await User.findById(userId);
@@ -75,8 +97,7 @@ router.put("/update", auth, async (req, res) => {
     // Update fields if provided
     if (name !== undefined) user.name = name;
     if (mobileNumber !== undefined) user.mobileNumber = mobileNumber;
-
-    // ... add other fields as needed ...
+    if (countryCode !== undefined) user.countryCode = countryCode;
 
     await user.save();
 
@@ -87,6 +108,7 @@ router.put("/update", auth, async (req, res) => {
         name: user.name,
         email: user.email,
         mobileNumber: user.mobileNumber,
+        countryCode: user.countryCode,
         profilePicture: user.profilePicture,
       },
     });
@@ -98,14 +120,16 @@ router.put("/update", auth, async (req, res) => {
   }
 });
 
-// DELETE /api/profile/delete
+// DELETE /api/profile/delete - Delete user profile
 router.delete('/delete', auth, async (req, res) => {
   try {
     const userId = req.user.id; // from the decoded token
     const user = await User.findByIdAndDelete(userId);
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
     res.status(200).json({ message: "Profile deleted successfully" });
   } catch (error) {
     console.error("Delete Profile Error:", error);
@@ -113,6 +137,4 @@ router.delete('/delete', auth, async (req, res) => {
   }
 });
 
-
 module.exports = router;
-

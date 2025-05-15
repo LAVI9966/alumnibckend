@@ -40,16 +40,26 @@ const transporter = nodemailer.createTransport({
  *    - Return a token so the client can pass it to the verify-otp route.
  */
 router.post('/register', async (req, res) => {
-  const { collegeNo, name, email, mobileNumber, password, role } = req.body;
+  const { collegeNo, name, email, mobileNumber, countryCode, password, role } = req.body;
   try {
-    // Check if user already exists by email or phone
-    let user = await User.findOne({
-      $or: [{ email: email }, { mobileNumber: mobileNumber }],
-    });
-    if (user) {
+    // Check if user already exists by email
+    let userByEmail = await User.findOne({ email: email });
+    if (userByEmail) {
       return res
         .status(400)
-        .json({ message: 'User with this email or phone already exists.' });
+        .json({ message: 'User with this email already exists.' });
+    }
+
+    // Check if user already exists by mobile number and country code
+    let userByMobile = await User.findOne({
+      countryCode: countryCode,
+      mobileNumber: mobileNumber
+    });
+
+    if (userByMobile) {
+      return res
+        .status(400)
+        .json({ message: 'User with this mobile number already exists.' });
     }
 
     // Generate OTP & set expiry (e.g., 5 minutes)
@@ -57,10 +67,11 @@ router.post('/register', async (req, res) => {
     const otpExpiry = Date.now() + 5 * 60 * 1000;
 
     // Create new user (not verified yet)
-    user = new User({
+    let user = new User({
       collegeNo,
       name,
       email,
+      countryCode,
       mobileNumber,
       password,
       role,
