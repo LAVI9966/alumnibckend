@@ -285,4 +285,20 @@ router.delete("/:id", auth, admin, async (req, res) => {
   }
 });
 
+
+
+//10 get single event by id
+// GET a single event by ID
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    res.json(event);
+  } catch (err) {
+    console.error("Error fetching event:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 module.exports = router;

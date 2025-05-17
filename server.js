@@ -1,7 +1,7 @@
 // server.js
 const express = require('express');
-const http = require('http');         
-const socketIO = require('socket.io'); 
+const http = require('http');
+const socketIO = require('socket.io');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -27,7 +27,7 @@ const io = socketIO(server, {
 });
 
 const corsOptions = {
-  origin: ['https://alumnifrontend-wheat.vercel.app', 'http://localhost:3000'],
+  origin: "*",
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -65,16 +65,16 @@ io.on('connection', (socket) => {
   // 1. Join a specific room for one-to-one chat
   socket.on('joinRoom', (data) => {
     console.log(`Received joinRoom event from ${socket.id} with data:`, data);
-  
+
     // Check if `data` is an object and extract `roomId`
     const roomId = typeof data === 'object' && data.roomId ? data.roomId : data;
-  
+
     // Ensure roomId is a string
     if (typeof roomId !== 'string') {
       console.error(`Invalid roomId format received: ${JSON.stringify(data)}`);
       return;
     }
-  
+
     socket.join(roomId);
     console.log(`User with socket ID ${socket.id} joined room: ${roomId}`);
   });
@@ -93,8 +93,8 @@ io.on('connection', (socket) => {
       }
 
       // Convert senderId & receiverId to ObjectId
-    const senderObjectId = new mongoose.Types.ObjectId(data.senderId);
-    const receiverObjectId = new mongoose.Types.ObjectId(data.receiverId);
+      const senderObjectId = new mongoose.Types.ObjectId(data.senderId);
+      const receiverObjectId = new mongoose.Types.ObjectId(data.receiverId);
       // Save to MongoDB
       const Chat = require('./models/Chat'); // import Chat model inside event
       const newMessage = new Chat({
