@@ -5,7 +5,7 @@ const auth = require('../middleware/auth');
 const User = require('../models/User');
 const admin = require('../middleware/admin');
 
-// Get all members (authenticated users)
+// Get all members (authenticated users) 
 router.get('/', auth, async (req, res) => {
   try {
     // Exclude password hash
@@ -102,7 +102,14 @@ router.put('/:id', auth, admin, async (req, res) => {
 router.patch("/:id/verify", auth, admin, async (req, res) => {
   try {
     const { status } = req.body;
-    console.log(status,"gaurav")
+
+    // Log the incoming request for debugging
+    console.log("Verify request:", {
+      userId: req.params.id,
+      newStatus: status,
+      body: req.body
+    });
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -110,16 +117,26 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
       return res.status(400).json({ message: "Invalid status value" });
     }
 
-    // Update the verification status
+    // Update both status and isVerified fields
     user.status = status;
+    user.isVerified = status === "verified";
     await user.save();
 
-    res.json({ message: "User verified successfully", user });
+    res.json({
+      message: `User ${status === "verified" ? "verified" : "unverified"} successfully`,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        status: user.status,
+        isVerified: user.isVerified
+      }
+    });
   } catch (error) {
+    console.error("Status update error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
-
 /**
  * 5. Delete a member (Admin only)
  */
