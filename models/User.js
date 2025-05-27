@@ -5,9 +5,11 @@ const UserSchema = new mongoose.Schema({
   collegeNo: { type: String, required: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  countryCode: { type: String, default: "+91" }, // New field for country code
-  mobileNumber: { type: String, required: true }, // Changed to String for better handling
+  countryCode: { type: String, default: "+91" },
+  mobileNumber: { type: String, required: true },
   password: { type: String, required: true },
+  profession: { type: String, required: false }, // NEW - Optional profession field
+  location: { type: String, required: false },   // NEW - Optional location field
   role: { type: String, enum: ["user", "alumni", "admin"], default: "user" },
   profilePicture: { type: String },
   isVerified: { type: Boolean, default: false },

@@ -40,7 +40,7 @@ const transporter = nodemailer.createTransport({
  *    - Return a token so the client can pass it to the verify-otp route.
  */
 router.post('/register', async (req, res) => {
-  const { collegeNo, name, email, mobileNumber, countryCode, password, role } = req.body;
+  const { collegeNo, name, email, mobileNumber, countryCode, password, role, profession, location } = req.body;
   try {
     // Check if user already exists by email
     let userByEmail = await User.findOne({ email: email });
@@ -75,6 +75,8 @@ router.post('/register', async (req, res) => {
       mobileNumber,
       password,
       role,
+      profession: profession || undefined, // Optional
+      location: location || undefined,     // Optional
       isVerified: false,
       otp,
       otpExpires: otpExpiry,
@@ -109,7 +111,6 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 /**
  * 2. Verify OTP
  *    - Client only sends { otp } in the body.
@@ -152,7 +153,17 @@ router.post('/verify-otp', async (req, res) => {
     user.otpExpires = undefined;
     await user.save();
 
-    return res.status(200).json({ message: 'OTP verified. User is activated.' });
+
+    //send admin mail new user is registered
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.ADMIN_EMAIL, // ✅ Admin email address from env
+      subject: 'New User Registration Awaiting Verification',
+      text: `A new user has registered and is awaiting admin verification.`
+    });
+
+
+    return res.status(200).json({ message: 'OTP verified. We will notify you by email once your account is approved by the admins.' });
   } catch (error) {
     console.error('Verify OTP Error:', error);
     return res.status(500).json({ message: 'Server error while verifying OTP' });

@@ -4,6 +4,24 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const admin = require('../middleware/admin');
+const nodemailer = require('nodemailer');
+
+// Configure nodemailer for sending email
+const transporter = nodemailer.createTransport({
+  service: 'Gmail', // or another email service
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,       // e.g. "myemail@gmail.com"
+    pass: process.env.EMAIL_PASSWORD,   // your app password or real password
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
+
 
 // Get all members (authenticated users) 
 router.get('/', auth, async (req, res) => {
@@ -103,7 +121,6 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
   try {
     const { status } = req.body;
 
-    // Log the incoming request for debugging
     console.log("Verify request:", {
       userId: req.params.id,
       newStatus: status,
@@ -117,10 +134,26 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
       return res.status(400).json({ message: "Invalid status value" });
     }
 
-    // Update both status and isVerified fields
+    // Update status and isVerified
     user.status = status;
     user.isVerified = status === "verified";
     await user.save();
+
+    // Define message based on status
+    const subject = status === "verified"
+      ? "Your account has been verified!"
+      : "Your account verification status has changed";
+
+    const message = status === "verified"
+      ? `Hello ${user.name},\n\nYour account has been successfully verified by the admin. You can now log in and use all features.`
+      : `Hello ${user.name},\n\nYour account verification status has been updated to '${status}'. Please contact support if you believe this is an error.`;
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject,
+      text: message,
+    });
 
     res.json({
       message: `User ${status === "verified" ? "verified" : "unverified"} successfully`,
@@ -137,6 +170,7 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+
 /**
  * 5. Delete a member (Admin only)
  */

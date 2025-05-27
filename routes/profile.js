@@ -78,10 +78,9 @@ router.post('/upload-profile-picture', auth, upload.single('profilePicture'), as
   }
 });
 
-// GET /api/profile/ - Get user profile
+// In profile routes - GET profile
 router.get('/', auth, async (req, res) => {
   try {
-    // Use req.user.id from the decoded token (auth middleware)
     const userId = req.user.id;
     const user = await User.findById(userId).select('-password -otp -otpExpires');
 
@@ -89,28 +88,26 @@ router.get('/', auth, async (req, res) => {
       return res.status(404).json({ message: 'User not found.' });
     }
 
-    // If user has a profile picture, ensure it's just the filename
-    if (user.profilePicture) {
-      // If it's a full path, extract just the filename
-      if (user.profilePicture.includes('\\') || user.profilePicture.includes('/')) {
-        user.profilePicture = path.basename(user.profilePicture);
+    // Include new fields in response
+    return res.status(200).json({
+      user: {
+        ...user.toObject(),
+        profession: user.profession || '',
+        location: user.location || ''
       }
-    }
-
-    return res.status(200).json({ user });
+    });
   } catch (error) {
     console.error('Get Profile Error:', error);
     return res.status(500).json({ message: 'Server error while fetching profile' });
   }
 });
 
-// PUT /api/profile/update - Update user profile
+// In profile routes - UPDATE profile
 router.put("/update", auth, async (req, res) => {
   try {
-    const userId = req.user.id; // from decoded token
-    const { name, mobileNumber, countryCode } = req.body;
+    const userId = req.user.id;
+    const { name, mobileNumber, countryCode, profession, location } = req.body;
 
-    // Find the user
     let user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -120,6 +117,8 @@ router.put("/update", auth, async (req, res) => {
     if (name !== undefined) user.name = name;
     if (mobileNumber !== undefined) user.mobileNumber = mobileNumber;
     if (countryCode !== undefined) user.countryCode = countryCode;
+    if (profession !== undefined) user.profession = profession;
+    if (location !== undefined) user.location = location;
 
     await user.save();
 
@@ -132,16 +131,15 @@ router.put("/update", auth, async (req, res) => {
         mobileNumber: user.mobileNumber,
         countryCode: user.countryCode,
         profilePicture: user.profilePicture,
+        profession: user.profession,
+        location: user.location,
       },
     });
   } catch (err) {
     console.error("Update Profile Error:", err);
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
+    return res.status(500).json({ message: "Server error", error: err.message });
   }
 });
-
 // DELETE /api/profile/delete - Delete user profile
 router.delete('/delete', auth, async (req, res) => {
   try {

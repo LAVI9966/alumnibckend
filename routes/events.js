@@ -3,6 +3,9 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const path = require("path");
+const nodemailer = require('nodemailer');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const Event = require("../models/Event");
 const User = require("../models/User"); // Added User model
@@ -10,6 +13,144 @@ const EventRegistration = require("../models/EventRegistration");
 const auth = require("../middleware/auth");
 const admin = require("../middleware/admin");
 const adminVerify = require("../middleware/adminVerify");
+
+// Configure nodemailer for sending email (same as in auth.js)
+const transporter = nodemailer.createTransport({
+  service: 'Gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
+// Function to send event notification email to all users
+const sendEventNotificationToAllUsers = async (event, isUpdate = false) => {
+  try {
+    // Get all verified users from the database
+    const users = await User.find({ isVerified: true });
+
+    if (users.length === 0) {
+      console.log('No verified users found to send notifications');
+      return;
+    }
+
+    // Create email content based on whether it's new or updated
+    const emailSubject = isUpdate
+      ? `📝 Event Update: ${event.title}`
+      : `🎉 New Event: ${event.title}`;
+
+    const emailContent = `
+Dear Event Enthusiast,
+
+${isUpdate
+        ? `We wanted to inform you about important updates to an upcoming event.`
+        : `We're excited to announce a new event that we think you'll find interesting!`
+      }
+
+EVENT DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📅 Event: ${event.title}
+📝 Description: ${event.description}
+🗓️ Date & Time: ${new Date(event.date).toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${isUpdate
+        ? `Please review the updated details and make any necessary adjustments to your schedule.`
+        : `This is a great opportunity to learn, network, and grow. We encourage you to participate!`
+      }
+
+To register or view more details, please log in to your account.
+
+Best regards,
+The Alumni Event Management Team
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated notification. Please do not reply to this email.
+For queries, contact our support team.
+    `;
+
+    // Send email to each user
+    const emailPromises = users.map(user => {
+      return transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: user.email,
+        subject: emailSubject,
+        text: emailContent,
+        html: `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f7fa;">
+            <div style="background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              
+              <!-- Header Section -->
+              <div style="background-color: #4a90e2; padding: 25px; text-align: center; color: white;">
+                <h1 style="margin: 0; font-size: 24px; font-weight: normal;">${isUpdate ? '📝 Event Update' : '🎉 New Event'}</h1>
+                <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.9;">
+                  ${isUpdate ? 'Important updates to your event' : 'We have something interesting for you'}
+                </p>
+              </div>
+              
+              <!-- Main Content -->
+              <div style="padding: 30px;">
+                <div style="text-align: center; margin-bottom: 25px;">
+                  <h2 style="color: #333; margin: 0; font-size: 22px; font-weight: normal;">${event.title}</h2>
+                  <div style="width: 50px; height: 2px; background-color: #4a90e2; margin: 10px auto;"></div>
+                </div>
+                
+                <!-- Event Details -->
+                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
+                  <p style="margin: 0 0 10px 0; color: #555; line-height: 1.5;"><span style="color: #333;">Description:</span> ${event.description}</p>
+                  <p style="margin: 0; color: #555; line-height: 1.5;"><span style="color: #333;">Date & Time:</span> ${new Date(event.date).toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })}</p>
+                </div>
+                
+                <!-- Message Section -->
+                <div style="text-align: center; margin-bottom: 25px;">
+                  <p style="color: #666; font-size: 16px; line-height: 1.5; margin: 0;">
+                    ${isUpdate
+            ? 'Please review the updated details and make any necessary adjustments to your schedule.'
+            : 'This is a great opportunity to learn, network, and grow. We encourage you to participate!'
+          }
+                  </p>
+                </div>
+                
+                
+              </div>
+                
+            </div>
+          </div>
+        `
+      });
+    });
+
+    // Wait for all emails to be sent
+    await Promise.all(emailPromises);
+    console.log(`Event notification emails sent to ${users.length} users`);
+
+  } catch (error) {
+    console.error('Error sending event notification emails:', error);
+    // Don't throw the error to prevent event creation from failing
+  }
+};
 
 // 1) MULTER SETUP (if you want to upload event images)
 const storage = multer.diskStorage({
@@ -23,7 +164,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// 2) CREATE A NEW EVENT (ADMIN ONLY) - UPDATED
+// 2) CREATE A NEW EVENT (ADMIN ONLY) - UPDATED WITH EMAIL NOTIFICATIONS
 router.post("/", auth, admin, upload.single("image"), async (req, res) => {
   const { title, description, date } = req.body;
   try {
@@ -44,8 +185,15 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       { $push: { events: event._id } }
     );
 
-    res.status(201).json({ message: "Event created successfully and notified to all users" });
+    // Send email notifications to all verified users
+    await sendEventNotificationToAllUsers(event);
+
+    res.status(201).json({
+      message: "Event created successfully and notifications sent to all users",
+      event: event
+    });
   } catch (err) {
+    console.error('Error creating event:', err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
@@ -53,7 +201,7 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
 // 3) GET ALL EVENTS (ALL AUTHENTICATED USERS)
 router.get("/", auth, async (req, res) => {
   try {
-    const events = await Event.find().sort({ date: 1 });
+    const events = await Event.find().sort({ createdAt: -1 });
     res.json(events);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -246,7 +394,7 @@ router.delete("/my-registrations/:registrationId", auth, async (req, res) => {
   }
 });
 
-// 8) UPDATE AN EVENT (ADMIN ONLY)
+// 8) UPDATE AN EVENT (ADMIN ONLY) - UPDATED WITH EMAIL NOTIFICATIONS
 router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
   const { title, description, date } = req.body;
   try {
@@ -261,8 +409,16 @@ router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
-    res.json(event);
+
+    // Send email notifications to all verified users about the update
+    await sendEventNotificationToAllUsers(event, true);
+
+    res.json({
+      message: "Event updated successfully and notifications sent to all users",
+      event: event
+    });
   } catch (err) {
+    console.error('Error updating event:', err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
@@ -285,8 +441,6 @@ router.delete("/:id", auth, admin, async (req, res) => {
   }
 });
 
-
-
 //10 get single event by id
 // GET a single event by ID
 router.get("/:id", auth, async (req, res) => {
@@ -301,4 +455,5 @@ router.get("/:id", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
 module.exports = router;
