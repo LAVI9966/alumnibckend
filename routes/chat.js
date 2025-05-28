@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const Chat = require('../models/Chat');
+const GlobalChat = require('../models/GlobalChat');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const adminVerify = require('../middleware/adminVerify');
@@ -36,7 +37,31 @@ router.get('/messages/:user1Id/:user2Id', auth, adminVerify, async (req, res) =>
   }
 });
 
+// Get global chat messages
+router.get('/global-messages', auth, adminVerify, async (req, res) => {
+  try {
+    const messages = await GlobalChat.find()
+      .sort({ timestamp: -1 })
+      .limit(100); // Limit to last 100 messages for performance
 
+    // Populate sender information
+    const populatedMessages = await Promise.all(
+      messages.map(async (message) => {
+        const sender = await User.findById(message.senderId).select('name profilePicture');
+        return {
+          ...message.toObject(),
+          senderName: sender ? sender.name : 'Unknown User',
+          senderProfilePicture: sender ? sender.profilePicture : null
+        };
+      })
+    );
+
+    return res.status(200).json({ success: true, data: populatedMessages });
+  } catch (error) {
+    console.error('Error fetching global messages:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Get recent chat list with user details, last message and timestamp 
 router.get('/recent-chats', auth, adminVerify, async (req, res) => {

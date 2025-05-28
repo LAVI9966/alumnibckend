@@ -8,8 +8,8 @@ const UserSchema = new mongoose.Schema({
   countryCode: { type: String, default: "+91" },
   mobileNumber: { type: String, required: true },
   password: { type: String, required: true },
-  profession: { type: String, required: false }, // NEW - Optional profession field
-  location: { type: String, required: false },   // NEW - Optional location field
+  profession: { type: String },
+  location: { type: String },
   role: { type: String, enum: ["user", "alumni", "admin"], default: "user" },
   profilePicture: { type: String },
   isVerified: { type: Boolean, default: false },
@@ -22,7 +22,10 @@ const UserSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Event"
   }],
+}, {
+  timestamps: true // 👈 Adds createdAt and updatedAt fields
 });
+
 
 // Hash the password before saving
 UserSchema.pre('save', async function (next) {

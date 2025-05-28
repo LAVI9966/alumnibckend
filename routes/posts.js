@@ -427,11 +427,11 @@ router.delete("/:id", auth, adminVerify, async (req, res) => {
 router.post("/:id/like", auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
-
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
-
+    const Notification = require("../models/Notification");
+    let liked = false;
     // Check if the post has already been liked by this user
     if (post.likes.some(like => like.toString() === req.user.id)) {
       // Remove like (unlike)
@@ -439,14 +439,23 @@ router.post("/:id/like", auth, async (req, res) => {
     } else {
       // Add like
       post.likes.push(req.user.id);
+      liked = true;
     }
-
     await post.save();
-
+    // Only create notification if liked and not by self
+    if (liked && post.user.toString() !== req.user.id) {
+      await Notification.create({
+        user: post.user,
+        type: "like",
+        post: post._id,
+        fromUser: req.user.id,
+        message: "liked your post"
+      });
+    }
     return res.status(200).json({
-      message: post.likes.some(like => like.toString() === req.user.id) ? "Post liked" : "Post unliked",
+      message: liked ? "Post liked" : "Post unliked",
       likes: post.likes.length,
-      isLiked: post.likes.some(like => like.toString() === req.user.id)
+      isLiked: liked
     });
   } catch (error) {
     console.error("Error liking/unliking post:", error);
@@ -483,36 +492,39 @@ router.post("/:id/share", auth, async (req, res) => {
 router.post("/:id/comment", auth, async (req, res) => {
   try {
     const { text } = req.body;
-
     if (!text) {
       return res.status(400).json({ message: "Comment text is required" });
     }
-
     const post = await Post.findById(req.params.id);
-
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
-
+    const Notification = require("../models/Notification");
     const newComment = {
       user: req.user.id,
       text,
       likes: [],
       replies: []
     };
-
     post.comments.push(newComment);
     await post.save();
-
+    // Notify post owner if not commenting on own post
+    if (post.user.toString() !== req.user.id) {
+      await Notification.create({
+        user: post.user,
+        type: "comment",
+        post: post._id,
+        fromUser: req.user.id,
+        message: "commented on your post"
+      });
+    }
     // Populate user data in the new comment
     const populatedPost = await Post.findById(req.params.id)
       .populate({
         path: "comments",
         populate: { path: "user", select: "name profilePicture" }
       });
-
     const addedComment = populatedPost.comments[populatedPost.comments.length - 1];
-
     return res.status(201).json({
       message: "Comment added successfully",
       comment: addedComment
@@ -648,16 +660,14 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
   try {
     const { text } = req.body;
     const { postId, targetId } = req.params;
-
     if (!text) {
       return res.status(400).json({ message: "Reply text is required" });
     }
-
     const post = await Post.findById(postId);
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
-
+    const Notification = require("../models/Notification");
     // Create a new reply object with MongoDB ObjectId
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
@@ -667,39 +677,64 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
       replies: [],
       createdAt: new Date()
     };
-
     let targetFound = false;
-
     // First check if targetId is a comment ID
     const commentIndex = post.comments.findIndex(comment => comment._id.toString() === targetId);
     if (commentIndex !== -1) {
       // Add reply to this comment
       post.comments[commentIndex].replies.push(newReply);
       targetFound = true;
+      // Notify comment owner if not replying to self
+      const comment = post.comments[commentIndex];
+      if (comment.user.toString() !== req.user.id) {
+        await Notification.create({
+          user: comment.user,
+          type: "reply",
+          post: post._id,
+          fromUser: req.user.id,
+          message: "replied to your comment"
+        });
+      }
     } else {
       // Search for the target reply in all comments
       for (const comment of post.comments) {
         if (addReplyToTarget(comment.replies, targetId, newReply)) {
           targetFound = true;
+          // Find the target reply's owner
+          const findReplyOwner = (replies, id) => {
+            for (const reply of replies) {
+              if (reply._id.toString() === id) return reply.user;
+              if (reply.replies && reply.replies.length > 0) {
+                const owner = findReplyOwner(reply.replies, id);
+                if (owner) return owner;
+              }
+            }
+            return null;
+          };
+          const replyOwner = findReplyOwner(comment.replies, targetId);
+          if (replyOwner && replyOwner.toString() !== req.user.id) {
+            await Notification.create({
+              user: replyOwner,
+              type: "reply",
+              post: post._id,
+              fromUser: req.user.id,
+              message: "replied to your comment"
+            });
+          }
           break;
         }
       }
     }
-
     if (!targetFound) {
       return res.status(404).json({ message: "Target not found" });
     }
-
     // Save the post with the new reply
     await post.save();
-
     // Fetch the updated post with user data populated
     const updatedPost = await Post.findById(postId);
     await updatedPost.populateUserData();
-
     // Find the newly added reply with populated user data
     let populatedReply = null;
-
     if (commentIndex !== -1) {
       // If we added to a comment, get the last reply
       const replies = updatedPost.comments[commentIndex].replies;
@@ -709,7 +744,6 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
       for (const comment of updatedPost.comments) {
         const findReplyById = (replies, id) => {
           if (!replies || !Array.isArray(replies)) return null;
-
           for (const reply of replies) {
             if (reply._id.toString() === id.toString()) {
               return reply;
@@ -719,7 +753,6 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
           }
           return null;
         };
-
         const found = findReplyById(comment.replies, newReply._id);
         if (found) {
           populatedReply = found;
@@ -727,7 +760,6 @@ router.post("/:postId/reply/:targetId", auth, async (req, res) => {
         }
       }
     }
-
     return res.status(201).json({
       message: "Reply added successfully",
       reply: populatedReply || newReply  // Fall back to unpopulated version if not found

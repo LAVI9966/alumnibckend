@@ -12,10 +12,8 @@ const EventRegistrationSchema = new mongoose.Schema({
     ref: "Event",
     required: true,
   },
-  registeredAt: {
-    type: Date,
-    default: Date.now,
-  },
+}, {
+  timestamps: true
 });
 
 module.exports = mongoose.model("EventRegistration", EventRegistrationSchema);

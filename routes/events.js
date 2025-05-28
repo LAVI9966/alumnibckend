@@ -29,14 +29,74 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Function to send event notification email to all users
-const sendEventNotificationToAllUsers = async (event, isUpdate = false) => {
+// Function to send event notification email to all users for a new event
+const sendEventNotificationToAllUsers = async (event) => {
   try {
-    // Get all verified users from the database
+    // Get all verified users
     const users = await User.find({ isVerified: true });
+    if (users.length === 0) {
+      console.log('No users found to send notifications');
+      return;
+    }
+
+    const emailSubject = `🎉 New Event: ${event.title}`;
+    const emailContent = `
+Dear Alumni,
+
+We're excited to announce a new event!
+
+EVENT DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 Event: ${event.title}
+📝 Description: ${event.description}
+🗓️ Date & Time: ${new Date(event.date).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is a great opportunity to learn, network, and grow. We encourage you to participate!
+
+To view more details, please log in to your account.
+
+Best regards,
+The Alumni Event Management Team
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated notification. Please do not reply to this email.
+For queries, contact our support team.
+    `;
+
+    // Send email to each user
+    const emailPromises = users.map(user => {
+      return transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: user.email,
+        subject: emailSubject,
+        text: emailContent
+      });
+    });
+
+    await Promise.all(emailPromises);
+    console.log(`Event notification emails sent to ${users.length} users`);
+  } catch (error) {
+    console.error('Error sending event notification emails:', error);
+  }
+};
+
+// Function to send event notification email to all registered users for an event (existing)
+const sendEventNotificationToRegisteredUsers = async (event, isUpdate = false) => {
+  try {
+    // Get all registrations for this event, and populate user info
+    const registrations = await EventRegistration.find({ event: event._id }).populate('user');
+    const users = registrations.map(reg => reg.user).filter(user => user && user.isVerified);
 
     if (users.length === 0) {
-      console.log('No verified users found to send notifications');
+      console.log('No registered users found to send notifications');
       return;
     }
 
@@ -49,8 +109,8 @@ const sendEventNotificationToAllUsers = async (event, isUpdate = false) => {
 Dear Event Enthusiast,
 
 ${isUpdate
-        ? `We wanted to inform you about important updates to an upcoming event.`
-        : `We're excited to announce a new event that we think you'll find interesting!`
+        ? `We wanted to inform you about important updates to an upcoming event you registered for.`
+        : `We're excited to announce a new event that you registered for!`
       }
 
 EVENT DETAILS
@@ -74,7 +134,7 @@ ${isUpdate
         : `This is a great opportunity to learn, network, and grow. We encourage you to participate!`
       }
 
-To register or view more details, please log in to your account.
+To view more details, please log in to your account.
 
 Best regards,
 The Alumni Event Management Team
@@ -84,7 +144,7 @@ This is an automated notification. Please do not reply to this email.
 For queries, contact our support team.
     `;
 
-    // Send email to each user
+    // Send email to each registered user
     const emailPromises = users.map(user => {
       return transporter.sendMail({
         from: process.env.EMAIL_USER,
@@ -94,22 +154,19 @@ For queries, contact our support team.
         html: `
           <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f7fa;">
             <div style="background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-              
               <!-- Header Section -->
               <div style="background-color: #4a90e2; padding: 25px; text-align: center; color: white;">
                 <h1 style="margin: 0; font-size: 24px; font-weight: normal;">${isUpdate ? '📝 Event Update' : '🎉 New Event'}</h1>
                 <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.9;">
-                  ${isUpdate ? 'Important updates to your event' : 'We have something interesting for you'}
+                  ${isUpdate ? 'Important updates to your event' : 'You registered for this event!'}
                 </p>
               </div>
-              
               <!-- Main Content -->
               <div style="padding: 30px;">
                 <div style="text-align: center; margin-bottom: 25px;">
                   <h2 style="color: #333; margin: 0; font-size: 22px; font-weight: normal;">${event.title}</h2>
                   <div style="width: 50px; height: 2px; background-color: #4a90e2; margin: 10px auto;"></div>
                 </div>
-                
                 <!-- Event Details -->
                 <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
                   <p style="margin: 0 0 10px 0; color: #555; line-height: 1.5;"><span style="color: #333;">Description:</span> ${event.description}</p>
@@ -122,7 +179,6 @@ For queries, contact our support team.
           minute: '2-digit'
         })}</p>
                 </div>
-                
                 <!-- Message Section -->
                 <div style="text-align: center; margin-bottom: 25px;">
                   <p style="color: #666; font-size: 16px; line-height: 1.5; margin: 0;">
@@ -132,10 +188,7 @@ For queries, contact our support team.
           }
                   </p>
                 </div>
-                
-                
               </div>
-                
             </div>
           </div>
         `
@@ -144,7 +197,7 @@ For queries, contact our support team.
 
     // Wait for all emails to be sent
     await Promise.all(emailPromises);
-    console.log(`Event notification emails sent to ${users.length} users`);
+    console.log(`Event notification emails sent to ${users.length} registered users`);
 
   } catch (error) {
     console.error('Error sending event notification emails:', error);
@@ -185,8 +238,18 @@ router.post("/", auth, admin, upload.single("image"), async (req, res) => {
       { $push: { events: event._id } }
     );
 
-    // Send email notifications to all verified users
-    await sendEventNotificationToAllUsers(event);
+    // Create in-app notifications for all users
+    const Notification = require("../models/Notification");
+    const users = await User.find({ isVerified: true });
+    const notifications = users.map(user => ({
+      user: user._id,
+      type: "event",
+      event: event._id,
+      message: `New event: ${event.title}`
+    }));
+    await Notification.insertMany(notifications);
+
+    // (No automatic email on event creation)
 
     res.status(201).json({
       message: "Event created successfully and notifications sent to all users",
@@ -410,8 +473,17 @@ router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    // Send email notifications to all verified users about the update
-    await sendEventNotificationToAllUsers(event, true);
+    // Create in-app notifications for all users about the update
+    const Notification = require("../models/Notification");
+    const users = await User.find({ isVerified: true });
+    const notifications = users.map(user => ({
+      user: user._id,
+      type: "event",
+      event: event._id,
+      message: `Event updated: ${event.title}`
+    }));
+    await Notification.insertMany(notifications);
+    // (No automatic email on event update)
 
     res.json({
       message: "Event updated successfully and notifications sent to all users",
@@ -420,6 +492,21 @@ router.put("/:id", auth, admin, upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error('Error updating event:', err);
     res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+// Admin: Send event email to all users on demand (top-level route, not nested)
+// Admin: Send event email to all users on demand
+router.post("/:id/send-email", auth, admin, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+
+    await sendEventNotificationToAllUsers(event);
+    res.json({ message: `Event email sent to all users` });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to send event email", error: err.message });
   }
 });
 
@@ -456,4 +543,4 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = router;           

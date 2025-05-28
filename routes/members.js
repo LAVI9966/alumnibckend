@@ -40,7 +40,9 @@ router.get('/', auth, async (req, res) => {
  */
 router.get('/admin', auth, admin, async (req, res) => {
   try {
-    const members = await User.find({}, { password: 0 });
+
+    const members = await User.find({}, { password: 0 }).sort({ createdAt: -1 });
+
     res.json(members);
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
@@ -139,13 +141,16 @@ router.patch("/:id/verify", auth, admin, async (req, res) => {
     user.isVerified = status === "verified";
     await user.save();
 
+    // Define login link (adjust URL as needed)
+    const loginLink = `${process.env.FRONTEND_URL}/login`;
+
     // Define message based on status
     const subject = status === "verified"
       ? "Your account has been verified!"
       : "Your account verification status has changed";
 
     const message = status === "verified"
-      ? `Hello ${user.name},\n\nYour account has been successfully verified by the admin. You can now log in and use all features.`
+      ? `Hello ${user.name},\n\nYour account has been successfully verified by the admin. You can now log in and use all features.\n\nGo to login: ${loginLink}`
       : `Hello ${user.name},\n\nYour account verification status has been updated to '${status}'. Please contact support if you believe this is an error.`;
 
     await transporter.sendMail({
