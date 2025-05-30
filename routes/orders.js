@@ -97,7 +97,8 @@ router.post('/', auth, async (req, res) => {
                 items: validItems,
                 totalAmount,
                 user: req.user.id,
-                shippingAddress
+                shippingAddress,
+                status: 'pending'
             });
 
             await order.save();
@@ -179,11 +180,10 @@ router.post('/verify', auth, async (req, res) => {
         // Update order with payment details
         order.razorpayPaymentId = razorpayPaymentId;
         order.razorpaySignature = razorpaySignature;
-        order.status = 'completed';
 
         try {
             await order.save();
-            console.log('Order completed successfully:', razorpayOrderId);
+            console.log('Payment verified successfully:', razorpayOrderId);
             res.json({
                 message: 'Payment verified successfully',
                 orderId: order._id,
@@ -267,14 +267,20 @@ router.patch('/admin/:orderId/status', auth, adminAuth, async (req, res) => {
             return res.status(404).json({ message: 'Order not found' });
         }
 
+        // Update order status
         order.status = status;
         await order.save();
 
+        // Return the updated order
         res.json({
             message: 'Order status updated successfully',
             order: {
                 _id: order._id,
-                status: order.status
+                status: order.status,
+                totalAmount: order.totalAmount,
+                createdAt: order.createdAt,
+                items: order.items,
+                shippingAddress: order.shippingAddress
             }
         });
     } catch (error) {
