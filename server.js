@@ -5,6 +5,7 @@ const socketIO = require('socket.io');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
 
 // Load environment variables
 dotenv.config();
@@ -23,7 +24,7 @@ const productRoutes = require('./routes/products');
 const path = require('path');
 
 const app = express();
-const server = http.createServer(app);  // Create an HTTP server from Express
+const server = http.createServer(app);
 const io = socketIO(server, {
   cors: { origin: '*' },
 });
@@ -36,7 +37,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Handle preflight
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 
@@ -63,62 +64,80 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/products', productRoutes);
 app.use("/api/notifications", require("./routes/notifications"));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-// --- Socket.IO Real-Time Chat Setup ---
+
+// Socket.IO middleware for authentication
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
+// Socket.IO Real-Time Chat Setup
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
   // Join a specific room for one-to-one chat
   socket.on('joinRoom', (data) => {
-    console.log(`Received joinRoom event from ${socket.id} with data:`, data);
-
-    // Check if `data` is an object and extract `roomId`
     const roomId = typeof data === 'object' && data.roomId ? data.roomId : data;
-
-    // Ensure roomId is a string
     if (typeof roomId !== 'string') {
       console.error(`Invalid roomId format received: ${JSON.stringify(data)}`);
       return;
     }
-
     socket.join(roomId);
-    console.log(`User with socket ID ${socket.id} joined room: ${roomId}`);
+    console.log(`User ${socket.userId} joined room: ${roomId}`);
   });
 
   // Join global chat room
   socket.on('joinGlobalRoom', () => {
     socket.join('global');
-    console.log(`User with socket ID ${socket.id} joined global room`);
+    console.log(`User ${socket.userId} joined global room`);
+  });
+
+  // Join user's personal room for notifications
+  socket.on('joinUserRoom', (userId) => {
+    if (userId === socket.userId) {
+      socket.join(userId);
+      console.log(`User ${socket.userId} joined their personal room`);
+    }
   });
 
   // Handle sending messages
   socket.on('sendMessage', async (data) => {
     try {
-      console.log(`Message received from ${data.senderId} to ${data.receiverId}: ${data.message}`);
-
-      // Validate if senderId and receiverId are valid ObjectId
       if (!mongoose.Types.ObjectId.isValid(data.senderId) || !mongoose.Types.ObjectId.isValid(data.receiverId)) {
         console.error('Invalid sender or receiver ID format');
         return;
       }
 
-      // Convert senderId & receiverId to ObjectId
       const senderObjectId = new mongoose.Types.ObjectId(data.senderId);
       const receiverObjectId = new mongoose.Types.ObjectId(data.receiverId);
 
-      // Save to MongoDB
       const Chat = require('./models/Chat');
       const newMessage = new Chat({
         senderId: senderObjectId,
         receiverId: receiverObjectId,
         message: data.message,
+        isRead: false
       });
       const savedMessage = await newMessage.save();
 
-      // Broadcast the message to everyone in the room
+      // Emit to the specific room
       io.to(data.roomId).emit('receiveMessage', savedMessage);
 
-      // Emit notification to the receiver
-      io.to(data.receiverId.toString()).emit('newMessageNotification', { fromUserId: data.senderId });
+      // Emit notification to receiver's personal room
+      io.to(data.receiverId.toString()).emit('newMessageNotification', {
+        fromUserId: data.senderId,
+        message: data.message
+      });
     } catch (error) {
       console.error('Error saving message:', error);
     }
@@ -127,18 +146,12 @@ io.on('connection', (socket) => {
   // Handle sending global messages
   socket.on('sendGlobalMessage', async (data) => {
     try {
-      console.log(`Global message received from ${data.senderId}: ${data.message}`);
-
-      // Validate if senderId is valid ObjectId
       if (!mongoose.Types.ObjectId.isValid(data.senderId)) {
         console.error('Invalid sender ID format');
         return;
       }
 
-      // Convert senderId to ObjectId
       const senderObjectId = new mongoose.Types.ObjectId(data.senderId);
-
-      // Save to MongoDB
       const GlobalChat = require('./models/GlobalChat');
       const newMessage = new GlobalChat({
         senderId: senderObjectId,
@@ -146,30 +159,79 @@ io.on('connection', (socket) => {
       });
       const savedMessage = await newMessage.save();
 
-      // Broadcast the message to everyone in the global room
+      // Emit to global room
       io.to('global').emit('receiveGlobalMessage', savedMessage);
 
       // Emit notification to all users except sender
-      const User = require('./models/User');
-      const users = await User.find({ _id: { $ne: senderObjectId } });
-      users.forEach(user => {
-        io.to(user._id.toString()).emit('newGlobalMessageNotification');
+      socket.broadcast.to('global').emit('newGlobalMessage', {
+        message: data.message,
+        senderId: data.senderId
       });
     } catch (error) {
       console.error('Error saving global message:', error);
     }
   });
 
-  // Join a personal room for notifications
-  socket.on('joinUserRoom', (userId) => {
-    if (typeof userId === 'string') {
-      socket.join(userId);
-      console.log(`Socket ${socket.id} joined personal room: ${userId}`);
+  // Handle marking messages as read
+  socket.on('markAsRead', async (data) => {
+    try {
+      const { userId } = data;
+      if (!userId) return;
+
+      const Chat = require('./models/Chat');
+      await Chat.updateMany(
+        {
+          senderId: userId,
+          receiverId: socket.userId,
+          isRead: false
+        },
+        {
+          $set: { isRead: true }
+        }
+      );
+
+      const unreadCounts = await Chat.aggregate([
+        {
+          $match: {
+            receiverId: mongoose.Types.ObjectId(socket.userId),
+            isRead: false
+          }
+        },
+        {
+          $group: {
+            _id: '$senderId',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+
+      const unreadCountsObj = unreadCounts.reduce((acc, curr) => {
+        acc[curr._id.toString()] = curr.count;
+        return acc;
+      }, {});
+
+      io.to(socket.userId).emit('unreadCountsUpdated', unreadCountsObj);
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  });
+
+  // Handle marking global chat as read
+  socket.on('markGlobalAsRead', async () => {
+    try {
+      const User = require('./models/User');
+      const user = await User.findById(socket.userId);
+      if (user) {
+        user.lastGlobalChatRead = new Date();
+        await user.save();
+      }
+    } catch (error) {
+      console.error('Error marking global chat as read:', error);
     }
   });
 
   socket.on('disconnect', () => {
-    console.log('A user disconnected:', socket.id);
+    console.log('User disconnected:', socket.userId);
   });
 });
 

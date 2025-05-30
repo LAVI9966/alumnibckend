@@ -6,6 +6,7 @@ const GlobalChat = require('../models/GlobalChat');
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 const adminVerify = require('../middleware/adminVerify');
+const mongoose = require('mongoose');
 
 // Send message (HTTP POST) - only for authenticated & admin-verified users
 router.post('/send', auth, adminVerify, async (req, res) => {
@@ -116,11 +117,39 @@ router.get('/recent-chats', auth, adminVerify, async (req, res) => {
 // Get unread chat count
 router.get('/unread', auth, async (req, res) => {
   try {
-    const count = await Chat.countDocuments({
-      receiverId: req.user.id,
-      isRead: false
+    const userId = req.user.id;
+
+    // Get unread counts for individual chats
+    const unreadCounts = await Chat.aggregate([
+      {
+        $match: {
+          receiverId: mongoose.Types.ObjectId(userId),
+          isRead: false
+        }
+      },
+      {
+        $group: {
+          _id: '$senderId',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Convert array to object with senderId as key
+    const unreadCountsObj = unreadCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.count;
+      return acc;
+    }, {});
+
+    // Get global chat unread count
+    const globalUnreadCount = await GlobalChat.countDocuments({
+      timestamp: { $gt: req.user.lastGlobalChatRead || new Date(0) }
     });
-    res.json({ count });
+
+    res.json({
+      unreadCounts: unreadCountsObj,
+      globalUnreadCount
+    });
   } catch (error) {
     console.error('Error fetching unread chat count:', error);
     res.status(500).json({ message: 'Error fetching unread chat count' });

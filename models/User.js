@@ -22,6 +22,10 @@ const UserSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Event"
   }],
+  lastGlobalChatRead: {
+    type: Date,
+    default: Date.now
+  }
 }, {
   timestamps: true // 👈 Adds createdAt and updatedAt fields
 });
