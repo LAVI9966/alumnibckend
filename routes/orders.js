@@ -199,6 +199,93 @@ router.post('/verify', auth, async (req, res) => {
     }
 });
 
+// Admin routes
+const adminAuth = (req, res, next) => {
+    if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ message: 'Not authorized' });
+    }
+    next();
+};
+
+// Get all orders (admin only)
+router.get('/admin', auth, adminAuth, async (req, res) => {
+    try {
+        const orders = await Order.find()
+            .populate({
+                path: 'items.product',
+                select: 'name image price'
+            })
+            .populate('user', 'name email')
+            .sort({ createdAt: -1 });
+
+        const transformedOrders = orders.map(order => ({
+            _id: order._id,
+            status: order.status,
+            totalAmount: order.totalAmount,
+            createdAt: order.createdAt,
+            items: order.items.map(item => ({
+                _id: item._id,
+                quantity: item.quantity,
+                price: item.price,
+                product: {
+                    _id: item.product?._id,
+                    name: item.product?.name || 'Product not found',
+                    image: item.product?.image || '/images/default-product.png',
+                    price: item.product?.price || 0
+                }
+            })),
+            shippingAddress: order.shippingAddress,
+            user: {
+                _id: order.user._id,
+                name: order.user.name,
+                email: order.user.email
+            }
+        }));
+
+        res.json(transformedOrders);
+    } catch (error) {
+        console.error('Error fetching all orders:', error);
+        res.status(500).json({
+            message: 'Error fetching orders',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// Update order status (admin only)
+router.patch('/admin/:orderId/status', auth, adminAuth, async (req, res) => {
+    try {
+        const { status } = req.body;
+        const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'completed', 'cancelled'];
+
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({ message: 'Invalid status' });
+        }
+
+        const order = await Order.findById(req.params.orderId);
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        order.status = status;
+        await order.save();
+
+        res.json({
+            message: 'Order status updated successfully',
+            order: {
+                _id: order._id,
+                status: order.status
+            }
+        });
+    } catch (error) {
+        console.error('Error updating order status:', error);
+        res.status(500).json({
+            message: 'Error updating order status',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
 // Get user orders
 router.get('/user', auth, async (req, res) => {
     try {
@@ -284,93 +371,6 @@ router.get('/:orderId', auth, async (req, res) => {
     } catch (error) {
         console.error('Error fetching order:', error);
         res.status(500).json({ message: 'Error fetching order' });
-    }
-});
-
-// Admin routes
-const adminAuth = (req, res, next) => {
-    if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Not authorized' });
-    }
-    next();
-};
-
-// Get all orders (admin only)
-router.get('/admin', auth, adminAuth, async (req, res) => {
-    try {
-        const orders = await Order.find()
-            .populate({
-                path: 'items.product',
-                select: 'name image price'
-            })
-            .populate('user', 'name email')
-            .sort({ createdAt: -1 });
-
-        const transformedOrders = orders.map(order => ({
-            _id: order._id,
-            status: order.status,
-            totalAmount: order.totalAmount,
-            createdAt: order.createdAt,
-            items: order.items.map(item => ({
-                _id: item._id,
-                quantity: item.quantity,
-                price: item.price,
-                product: {
-                    _id: item.product?._id,
-                    name: item.product?.name || 'Product not found',
-                    image: item.product?.image || '/images/default-product.png',
-                    price: item.product?.price || 0
-                }
-            })),
-            shippingAddress: order.shippingAddress,
-            user: {
-                _id: order.user._id,
-                name: order.user.name,
-                email: order.user.email
-            }
-        }));
-
-        res.json(transformedOrders);
-    } catch (error) {
-        console.error('Error fetching all orders:', error);
-        res.status(500).json({
-            message: 'Error fetching orders',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-});
-
-// Update order status (admin only)
-router.patch('/admin/:orderId/status', auth, adminAuth, async (req, res) => {
-    try {
-        const { status } = req.body;
-        const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'completed', 'cancelled'];
-
-        if (!validStatuses.includes(status)) {
-            return res.status(400).json({ message: 'Invalid status' });
-        }
-
-        const order = await Order.findById(req.params.orderId);
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
-
-        order.status = status;
-        await order.save();
-
-        res.json({
-            message: 'Order status updated successfully',
-            order: {
-                _id: order._id,
-                status: order.status
-            }
-        });
-    } catch (error) {
-        console.error('Error updating order status:', error);
-        res.status(500).json({
-            message: 'Error updating order status',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
     }
 });
 
