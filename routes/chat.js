@@ -113,4 +113,18 @@ router.get('/recent-chats', auth, adminVerify, async (req, res) => {
   }
 });
 
+// Get unread chat count
+router.get('/unread', auth, async (req, res) => {
+  try {
+    const count = await Chat.countDocuments({
+      receiverId: req.user.id,
+      isRead: false
+    });
+    res.json({ count });
+  } catch (error) {
+    console.error('Error fetching unread chat count:', error);
+    res.status(500).json({ message: 'Error fetching unread chat count' });
+  }
+});
+
 module.exports = router;

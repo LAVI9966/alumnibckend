@@ -153,14 +153,29 @@ router.post('/verify-otp', async (req, res) => {
     user.otpExpires = undefined;
     await user.save();
 
+    // Fetch all admin users
+    const adminUsers = await User.find({ role: 'admin' });
 
-    //send admin mail new user is registered
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.ADMIN_EMAIL, // ✅ Admin email address from env
-      subject: 'New User Registration Awaiting Verification',
-      text: `A new user has registered and is awaiting admin verification.`
-    });
+    // Extract email addresses of admins
+    const adminEmails = adminUsers.map(admin => admin.email).filter(Boolean);
+
+    // Send email to all admins
+    if (adminEmails.length > 0) {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: adminEmails, // Sends to all admin emails
+        subject: 'New User Registration Awaiting Verification',
+        text: `A new user has registered and is awaiting admin verification.`
+      });
+    }
+
+    // //send admin mail new user is registered
+    // await transporter.sendMail({
+    //   from: process.env.EMAIL_USER,
+    //   to: process.env.ADMIN_EMAIL, // ✅ Admin email address from env
+    //   subject: 'New User Registration Awaiting Verification',
+    //   text: `A new user has registered and is awaiting admin verification.`
+    // });
 
 
     return res.status(200).json({ message: 'OTP verified. We will notify you by email once your account is approved by the admins.' });
