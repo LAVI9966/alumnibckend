@@ -309,7 +309,7 @@ router.get('/user', auth, async (req, res) => {
         const orders = await Order.find({ user: req.user.id })
             .populate({
                 path: 'items.product',
-                select: 'name image price'
+                select: '_id name image price description'
             })
             .sort({ createdAt: -1 });
 
@@ -338,7 +338,8 @@ router.get('/user', auth, async (req, res) => {
                             _id: item.product?._id,
                             name: item.product?.name || 'Product not found',
                             image: item.product?.image || '/images/default-product.png',
-                            price: item.product?.price || 0
+                            price: item.product?.price || 0,
+                            description: item.product?.description || ''
                         }
                     };
                 }),
