@@ -45,6 +45,48 @@ router.post('/register', async (req, res) => {
     // Check if user already exists by email
     let userByEmail = await User.findOne({ email: email });
     if (userByEmail) {
+      // If user exists but is not verified, allow re-registration
+      if (!userByEmail.isVerified) {
+        // Generate new OTP & set expiry
+        const otp = generateOTP();
+        const otpExpiry = Date.now() + 5 * 60 * 1000;
+
+        // Update existing user with new details
+        userByEmail.otp = otp;
+        userByEmail.otpExpires = otpExpiry;
+        userByEmail.name = name;
+        userByEmail.collegeNo = collegeNo;
+        userByEmail.mobileNumber = mobileNumber;
+        userByEmail.countryCode = countryCode;
+        userByEmail.password = password;
+        userByEmail.role = role;
+        userByEmail.profession = profession || userByEmail.profession;
+        userByEmail.location = location || userByEmail.location;
+        await userByEmail.save();
+
+        // Send new OTP via email
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: email,
+          subject: 'Your New OTP Code',
+          text: `Your new OTP code is ${otp}. It is valid for 5 minutes.`,
+        });
+
+        // Sign a JWT with user ID and role
+        const payload = { id: userByEmail._id, role: userByEmail.role };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' });
+
+        return res.status(200).json({
+          message: 'New OTP sent to your email. Please verify.',
+          token,
+          user: {
+            id: userByEmail._id,
+            name: userByEmail.name,
+            email: userByEmail.email,
+            role: userByEmail.role,
+          },
+        });
+      }
       return res
         .status(400)
         .json({ message: 'User with this email already exists.' });
@@ -75,8 +117,8 @@ router.post('/register', async (req, res) => {
       mobileNumber,
       password,
       role,
-      profession: profession || undefined, // Optional
-      location: location || undefined,     // Optional
+      profession: profession || undefined,
+      location: location || undefined,
       isVerified: false,
       otp,
       otpExpires: otpExpiry,
@@ -111,6 +153,60 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Add a new route for resending OTP
+router.post('/resend-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // If user is already verified, no need to resend OTP
+    if (user.isVerified) {
+      return res.status(400).json({ message: 'User is already verified.' });
+    }
+
+    // Generate new OTP & set expiry
+    const otp = generateOTP();
+    const otpExpiry = Date.now() + 5 * 60 * 1000;
+
+    // Update user with new OTP
+    user.otp = otp;
+    user.otpExpires = otpExpiry;
+    await user.save();
+
+    // Send new OTP via email
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your New OTP Code',
+      text: `Your new OTP code is ${otp}. It is valid for 5 minutes.`,
+    });
+
+    // Sign a new JWT
+    const payload = { id: user._id, role: user.role };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' });
+
+    return res.status(200).json({
+      message: 'New OTP sent to your email.',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error('Resend OTP Error:', error);
+    return res.status(500).json({ message: 'Server error while resending OTP' });
+  }
+});
+
 /**
  * 2. Verify OTP
  *    - Client only sends { otp } in the body.
@@ -202,7 +298,9 @@ router.post('/login', async (req, res) => {
     // Check if verified
     if (!user.isVerified) {
       return res.status(403).json({
-        message: 'User not verified. Please verify OTP before logging in.',
+        message: 'Please complete OTP verification first. You can request a new OTP by trying to register again with the same email.',
+        isUnverified: true,
+        email: user.email
       });
     }
 
@@ -235,9 +333,20 @@ router.post('/login', async (req, res) => {
 // Route to check access token
 router.get('/check-token', auth, async (req, res) => {
   try {
+    // Get user details to check verification status
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    // Return the same structure as before, but add verification status
     res.json({
       message: 'Token is valid',
-      user: req.user, // Contains decoded user details (id, role)
+      user: {
+        ...req.user,
+        isVerified: user.isVerified,
+        status: user.status // Include status for admin verification
+      }
     });
   } catch (error) {
     console.error('Token Verification Error:', error);
